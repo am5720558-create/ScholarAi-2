@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { GoogleGenAI } from "@google/genai";
 
 const MODELS = {
@@ -38,6 +39,11 @@ export default async function handler(request, response) {
     return response.status(405).json({ error: 'Method Not Allowed' });
   }
 
+  // Ensure body exists
+  if (!request.body) {
+     return response.status(400).json({ error: 'Missing request body' });
+  }
+
   const { endpoint, ...body } = request.body;
 
   try {
@@ -48,7 +54,8 @@ export default async function handler(request, response) {
     switch (endpoint) {
       case 'chat': {
         const { history, newMessage, userContext } = body;
-        const formattedHistory = history.map(msg => ({
+        // Use empty array fallback to prevent crash if history is undefined
+        const formattedHistory = (history || []).map(msg => ({
           role: msg.role,
           parts: [{ text: msg.text }]
         }));
