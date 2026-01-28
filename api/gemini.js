@@ -46,6 +46,8 @@ export default async function handler(request, response) {
 
   try {
     let resultText = "";
+    // Use Flash model by default to avoid Rate Limits on Pro
+    const activeModel = MODELS.FAST; 
 
     switch (endpoint) {
       case 'chat': {
@@ -56,7 +58,7 @@ export default async function handler(request, response) {
         }));
         
         const chat = genAI.chats.create({
-          model: MODELS.PRO,
+          model: activeModel,
           config: {
             systemInstruction: `${SYSTEM_INSTRUCTION_COACH} \n\n User Context: ${userContext}`,
             temperature: 0.7,
@@ -75,7 +77,7 @@ export default async function handler(request, response) {
         Format: Markdown with Headers (##) and Horizontal Rules (---).`;
         
         const res = await genAI.models.generateContent({
-          model: MODELS.PRO,
+          model: activeModel,
           contents: prompt,
           config: { temperature: 0.3 }
         });
@@ -92,7 +94,7 @@ export default async function handler(request, response) {
         parts.push({ text: `Solve this academic doubt step-by-step using Markdown. Doubt: ${doubt}` });
 
         const res = await genAI.models.generateContent({
-          model: MODELS.PRO,
+          model: activeModel,
           contents: { parts },
           config: { systemInstruction: "You are an expert academic doubt solver." }
         });
@@ -106,7 +108,7 @@ export default async function handler(request, response) {
         Return ONLY a JSON array. Keys: id, question, options (array), correctAnswer (index), explanation.`;
 
         const res = await genAI.models.generateContent({
-          model: MODELS.PRO,
+          model: activeModel,
           contents: prompt,
           config: {
             responseMimeType: 'application/json'
@@ -120,7 +122,7 @@ export default async function handler(request, response) {
       case 'career': {
         const { profile, query } = body;
         const res = await genAI.models.generateContent({
-          model: MODELS.PRO,
+          model: activeModel,
           contents: `User Profile: ${profile}\n\nUser Query: ${query}\n\nUse Markdown tables and bullet points.`,
           config: { systemInstruction: SYSTEM_INSTRUCTION_CAREER }
         });
@@ -135,7 +137,7 @@ export default async function handler(request, response) {
         Output: Weekly timetable in Markdown Table. Strategy section with bullet points.`;
         
         const res = await genAI.models.generateContent({
-          model: MODELS.PRO,
+          model: activeModel,
           contents: prompt,
           config: { temperature: 0.5 }
         });
