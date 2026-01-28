@@ -35,7 +35,8 @@ const callBackendApi = async (endpoint: string, body: any) => {
     if (error.message.includes("API_KEY is missing")) {
       return "⚠️ System Error: The Server API Key is missing. Please configure it in Vercel Settings or .env file.";
     }
-    return null;
+    // Return the actual error message so the user knows what went wrong
+    return `⚠️ Error: ${error.message || "Unknown error occurred"}`;
   }
 };
 
@@ -45,6 +46,8 @@ export const chatWithCoach = async (
   userContext: string
 ) => {
   const result = await callBackendApi('chat', { history, newMessage, userContext });
+  // If result is an error string (starts with ⚠️), return it. 
+  if (result && result.startsWith("⚠️")) return result;
   return result || "I'm having trouble connecting to the server. Please check your connection or API configuration.";
 };
 
@@ -60,8 +63,11 @@ export const solveDoubt = async (doubt: string, imageBase64?: string) => {
 
 export const generateQuiz = async (topic: string, difficulty: string): Promise<QuizQuestion[]> => {
   const result = await callBackendApi('quiz', { topic, difficulty });
-  // The backend returns the parsed JSON object directly
-  return result || [];
+  // The backend returns the parsed JSON object directly. 
+  // If it's a string (error message), we return empty array or handle it in UI, 
+  // but the component expects array.
+  if (Array.isArray(result)) return result;
+  return [];
 };
 
 export const getCareerAdvice = async (profile: string, query: string): Promise<string> => {

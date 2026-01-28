@@ -116,6 +116,7 @@ export default async function handler(request, response) {
         });
         // Return parsed JSON directly
         const jsonText = res.text;
+        if (!jsonText) throw new Error("Empty response from AI for Quiz");
         return response.status(200).json({ result: JSON.parse(jsonText) });
       }
 
@@ -147,6 +148,10 @@ export default async function handler(request, response) {
 
       default:
         return response.status(400).json({ error: 'Invalid endpoint' });
+    }
+
+    if (!resultText) {
+       throw new Error("AI response was empty. The content might have been blocked by safety filters.");
     }
 
     return response.status(200).json({ result: resultText });
