@@ -1,15 +1,11 @@
 import { GoogleGenAI } from "@google/genai";
 
-// Initialize the client on the server side
-// process.env.API_KEY will be read from Vercel Environment Variables
-const genAI = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
 const MODELS = {
   FAST: 'gemini-3-flash-preview',
   PRO: 'gemini-3-pro-preview'
 };
 
-// System instructions moved to backend
+// System instructions
 const SYSTEM_INSTRUCTION_COACH = `You are "ScholarAI Coach", a friendly, encouraging, and intelligent tutor for students (Grade 9 to College) in India.
 GOAL: Explain complex topics simply, using analogies, stories, and memory tricks.
 FORMATTING: Use Markdown, Headings, Bullet points, Tables, Bold text.
@@ -20,6 +16,18 @@ FORMATTING: Use Markdown tables, Bullet points, Bold.
 CONTENT: Guidance on streams, degrees, scope, salary (INR), difficulty.`;
 
 export default async function handler(request, response) {
+  // 1. Security Check: Ensure API Key exists before initializing
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) {
+    console.error("CRITICAL: process.env.API_KEY is missing.");
+    return response.status(500).json({ 
+      error: "Server Configuration Error: API_KEY is missing. Please set it in Vercel Settings." 
+    });
+  }
+
+  // 2. Initialize the client INSIDE the handler (Lazy Loading)
+  const genAI = new GoogleGenAI({ apiKey });
+
   if (request.method !== 'POST') {
     return response.status(405).json({ error: 'Method Not Allowed' });
   }
