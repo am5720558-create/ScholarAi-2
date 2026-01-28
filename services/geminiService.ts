@@ -15,8 +15,14 @@ const callBackendApi = async (endpoint: string, body: any) => {
     });
 
     if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+      let errorMessage = `HTTP error! status: ${response.status}`;
+      try {
+        const errorData = await response.json();
+        if (errorData.error) errorMessage = errorData.error;
+      } catch (e) {
+        // If response is not JSON (e.g. HTML 404 or 500 page), keep default message
+      }
+      throw new Error(errorMessage);
     }
 
     const data = await response.json();
@@ -25,6 +31,9 @@ const callBackendApi = async (endpoint: string, body: any) => {
     console.error("Backend API Error:", error);
     if (error.message.includes("429") || error.message.includes("quota")) {
       return "⚠️ System is currently busy (Rate Limit). Please try again in a minute.";
+    }
+    if (error.message.includes("API_KEY is missing")) {
+      return "⚠️ System Error: The Server API Key is missing. Please configure it in Vercel Settings or .env file.";
     }
     return null;
   }
@@ -36,12 +45,12 @@ export const chatWithCoach = async (
   userContext: string
 ) => {
   const result = await callBackendApi('chat', { history, newMessage, userContext });
-  return result || "I'm having trouble connecting to the server right now. Please try again later.";
+  return result || "I'm having trouble connecting to the server. Please check your connection or API configuration.";
 };
 
 export const generateNotes = async (topicOrText: string) => {
   const result = await callBackendApi('notes', { topic: topicOrText });
-  return result || "Unable to generate notes at this time.";
+  return result || "Unable to generate notes at this time. Server might be misconfigured.";
 };
 
 export const solveDoubt = async (doubt: string, imageBase64?: string) => {
