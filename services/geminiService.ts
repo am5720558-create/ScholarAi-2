@@ -20,7 +20,7 @@ const callBackendApi = async (endpoint: string, body: any) => {
         const errorData = await response.json();
         if (errorData.error) errorMessage = errorData.error;
       } catch (e) {
-        // If response is not JSON (e.g. HTML 404 or 500 page), keep default message
+        // If response is not JSON
       }
       throw new Error(errorMessage);
     }
@@ -29,12 +29,22 @@ const callBackendApi = async (endpoint: string, body: any) => {
     return data.result;
   } catch (error: any) {
     console.error("Backend API Error:", error);
+    
+    // Handle Rate Limits
     if (error.message.includes("429") || error.message.includes("quota")) {
       return "⚠️ System is currently busy (Rate Limit). Please try again in a minute.";
     }
+    
+    // Handle Leaked/Invalid Key
+    if (error.message.includes("403") || error.message.includes("leaked") || error.message.includes("PERMISSION_DENIED")) {
+      return "⚠️ Authorization Error: The API Key has been revoked or is invalid. Please update the API_KEY in your server settings.";
+    }
+
+    // Handle Missing Key
     if (error.message.includes("API_KEY is missing")) {
       return "⚠️ System Error: The Server API Key is missing. Please configure it in Vercel Settings or .env file.";
     }
+
     // Return the actual error message so the user knows what went wrong
     return `⚠️ Error: ${error.message || "Unknown error occurred"}`;
   }
@@ -46,7 +56,6 @@ export const chatWithCoach = async (
   userContext: string
 ) => {
   const result = await callBackendApi('chat', { history, newMessage, userContext });
-  // If result is an error string (starts with ⚠️), return it. 
   if (result && result.startsWith("⚠️")) return result;
   return result || "I'm having trouble connecting to the server. Please check your connection or API configuration.";
 };
@@ -64,9 +73,11 @@ export const solveDoubt = async (doubt: string, imageBase64?: string) => {
 export const generateQuiz = async (topic: string, difficulty: string): Promise<QuizQuestion[]> => {
   const result = await callBackendApi('quiz', { topic, difficulty });
   // The backend returns the parsed JSON object directly. 
-  // If it's a string (error message), we return empty array or handle it in UI, 
-  // but the component expects array.
+  // If it's a string (error message), we return empty array or handle it in UI.
   if (Array.isArray(result)) return result;
+  // If it's an error string, we can't show it in the quiz component easily, 
+  // but logging it helps debugging. 
+  console.error("Quiz Generation Error:", result);
   return [];
 };
 

@@ -15,27 +15,23 @@ const SYSTEM_INSTRUCTION_CAREER = `You are a Career Counselor expert for the Ind
 FORMATTING: Use Markdown tables, Bullet points, Bold.
 CONTENT: Guidance on streams, degrees, scope, salary (INR), difficulty.`;
 
-// Fallback key for immediate functionality. 
-// Ideally, this should be managed via Vercel Environment Variables.
-const FALLBACK_KEY = "AIzaSyCgmQQECX5u9PHRZiIB1DpxleLSmV8xuGk";
-
 export default async function handler(request, response) {
-  // Handle CORS preflight (optional, but good for local dev if ports differ)
+  // Handle CORS preflight
   if (request.method === 'OPTIONS') {
     return response.status(200).send('OK');
   }
 
-  // 1. Get API Key (Env Var > Fallback)
-  const apiKey = process.env.API_KEY || FALLBACK_KEY;
+  // 1. Get API Key exclusively from Environment Variables
+  const apiKey = process.env.API_KEY;
 
   if (!apiKey) {
-    console.error("CRITICAL: API_KEY is missing.");
+    console.error("CRITICAL: API_KEY is missing in server environment.");
     return response.status(500).json({ 
-      error: "Server Configuration Error: API_KEY is missing. Please set it in Vercel Settings." 
+      error: "Server Configuration Error: API_KEY is missing. Please set it in Vercel Settings or .env file." 
     });
   }
 
-  // 2. Initialize the client INSIDE the handler
+  // 2. Initialize the client
   const genAI = new GoogleGenAI({ apiKey });
 
   if (request.method !== 'POST') {
@@ -46,7 +42,7 @@ export default async function handler(request, response) {
 
   try {
     let resultText = "";
-    // Use Flash model by default to avoid Rate Limits on Pro
+    // Use Flash model by default for speed and higher quotas
     const activeModel = MODELS.FAST; 
 
     switch (endpoint) {
@@ -114,7 +110,6 @@ export default async function handler(request, response) {
             responseMimeType: 'application/json'
           }
         });
-        // Return parsed JSON directly
         const jsonText = res.text;
         if (!jsonText) throw new Error("Empty response from AI for Quiz");
         return response.status(200).json({ result: JSON.parse(jsonText) });
@@ -158,6 +153,7 @@ export default async function handler(request, response) {
 
   } catch (error) {
     console.error("Server AI Error:", error);
+    // Propagate the specific error code to the client
     return response.status(500).json({ error: error.message || "Internal Server Error" });
   }
 }
