@@ -7,7 +7,7 @@ const getClient = () => {
   const apiKey = process.env.API_KEY;
   
   if (!apiKey || apiKey === "undefined") {
-    console.error("API_KEY is missing!");
+    console.error("API_KEY is missing! Please set it in your .env file or deployment settings.");
     throw new Error("MISSING_API_KEY");
   }
   return new GoogleGenAI({ apiKey });
@@ -20,22 +20,22 @@ const handleGeminiError = (error: any, defaultMessage: string): string => {
   const errMsg = error && error.message ? error.message.toLowerCase() : "";
 
   if (errMsg.includes("missing_api_key") || errString.includes("missing_api_key")) {
-    return "⚠️ Configuration Error: API_KEY is missing.";
+    return "⚠️ Configuration Error: API_KEY is missing. Please create one at aistudio.google.com and add it to your environment variables.";
   }
   
   if (errMsg.includes("403") || errString.includes("403") || errString.includes("key not valid") || errString.includes("api key")) {
-     return "⚠️ Access Denied: The API Key provided is invalid or expired.";
+     return "⚠️ Access Denied: The API Key provided is invalid or expired. Please check your .env file.";
   }
 
   if (errMsg.includes("429") || errString.includes("quota") || errString.includes("resource exhausted")) {
-      return "⚠️ Usage Limit Exceeded: The free API key quota has been exhausted. Please try again later or use a different key.";
+      return "⚠️ Usage Limit Exceeded: Your API key has hit the rate limit. Please try again later or use a different key.";
   }
   
   return defaultMessage;
 };
 
 // --- Models ---
-// We use gemini-3-flash-preview for better performance and higher rate limits on free tier.
+// Switched to gemini-3-pro-preview as requested.
 
 export const chatWithCoach = async (
   history: ChatMessage[], 
@@ -50,7 +50,7 @@ export const chatWithCoach = async (
     }));
 
     const chat = ai.chats.create({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-3-pro-preview',
       config: {
         systemInstruction: `${SYSTEM_INSTRUCTION_COACH} \n\n User Context: ${userContext}`,
         temperature: 0.7,
@@ -117,7 +117,7 @@ Output strictly in Markdown format.
 `;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-3-pro-preview',
       contents: prompt,
       config: {
         temperature: 0.3, // Lower temperature for more factual output
@@ -160,7 +160,7 @@ export const solveDoubt = async (doubt: string, imageBase64?: string) => {
     parts.push({ text: prompt });
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-3-pro-preview',
       contents: { parts },
       config: {
         systemInstruction: "You are an expert academic doubt solver. Be precise, accurate, and easy to understand."
@@ -186,7 +186,7 @@ export const generateQuiz = async (topic: string, difficulty: string): Promise<Q
     - explanation (string, short explanation of why it is correct)`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-3-pro-preview',
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
@@ -226,7 +226,7 @@ export const getCareerAdvice = async (profile: string, query: string): Promise<s
     const ai = getClient();
     
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-3-pro-preview',
       contents: `User Profile: ${profile}\n\nUser Query: ${query}\n\nRemember to use Markdown tables for comparisons, Horizontal Rules (---) to separate sections, and bullet points for lists.`,
       config: {
         systemInstruction: SYSTEM_INSTRUCTION_CAREER
@@ -265,7 +265,7 @@ export const generateStudyPlan = async (details: {
     Keep it encouraging and actionable.`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-3-pro-preview',
       contents: prompt,
       config: {
         temperature: 0.5,
