@@ -6,7 +6,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, (process as any).cwd(), '');
   
   // Uses the environment variable if present, otherwise falls back to your hardcoded key
-  const apiKey = env.API_KEY || "AIzaSyDWuq3GOvLhKJVRJFxaBOJchSaLpGo4o3I";
+  const apiKey = env.API_KEY || "AIzaSyCgmQQECX5u9PHRZiIB1DpxleLSmV8xuGk";
   
   return {
     plugins: [react()],
