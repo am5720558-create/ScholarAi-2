@@ -15,17 +15,27 @@ const SYSTEM_INSTRUCTION_CAREER = `You are a Career Counselor expert for the Ind
 FORMATTING: Use Markdown tables, Bullet points, Bold.
 CONTENT: Guidance on streams, degrees, scope, salary (INR), difficulty.`;
 
+// Fallback key for immediate functionality. 
+// Ideally, this should be managed via Vercel Environment Variables.
+const FALLBACK_KEY = "AIzaSyCgmQQECX5u9PHRZiIB1DpxleLSmV8xuGk";
+
 export default async function handler(request, response) {
-  // 1. Security Check: Ensure API Key exists before initializing
-  const apiKey = process.env.API_KEY;
+  // Handle CORS preflight (optional, but good for local dev if ports differ)
+  if (request.method === 'OPTIONS') {
+    return response.status(200).send('OK');
+  }
+
+  // 1. Get API Key (Env Var > Fallback)
+  const apiKey = process.env.API_KEY || FALLBACK_KEY;
+
   if (!apiKey) {
-    console.error("CRITICAL: process.env.API_KEY is missing.");
+    console.error("CRITICAL: API_KEY is missing.");
     return response.status(500).json({ 
       error: "Server Configuration Error: API_KEY is missing. Please set it in Vercel Settings." 
     });
   }
 
-  // 2. Initialize the client INSIDE the handler (Lazy Loading)
+  // 2. Initialize the client INSIDE the handler
   const genAI = new GoogleGenAI({ apiKey });
 
   if (request.method !== 'POST') {
