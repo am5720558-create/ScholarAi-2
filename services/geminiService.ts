@@ -4,16 +4,21 @@ import { ChatMessage, MessageRole, QuizQuestion, CareerPath } from '../types';
 
 const getClient = () => {
   // In Vite via define plugin, this string replacement happens at build time.
-  // We check if it exists to prevent runtime crashes.
   const apiKey = process.env.API_KEY;
   
   if (!apiKey) {
     console.error("API_KEY is missing! Please set the API_KEY environment variable in Vercel.");
-    // We return null here to handle it gracefully in the calling functions, 
-    // or throw a user-friendly error.
-    throw new Error("Service unavailable: API Key is not configured.");
+    throw new Error("MISSING_API_KEY");
   }
   return new GoogleGenAI({ apiKey });
+};
+
+const handleGeminiError = (error: any, defaultMessage: string): string => {
+  console.error("Gemini API Error:", error);
+  if (error.message === "MISSING_API_KEY" || error.toString().includes("MISSING_API_KEY")) {
+    return "⚠️ Configuration Error: API_KEY is missing. Please add the API_KEY environment variable in Vercel and redeploy.";
+  }
+  return defaultMessage;
 };
 
 // --- Models ---
@@ -44,8 +49,7 @@ export const chatWithCoach = async (
     const response = await chat.sendMessage({ message: newMessage });
     return response.text;
   } catch (error) {
-    console.error("Gemini API Error:", error);
-    return "I'm having trouble connecting to the server right now. Please try again later.";
+    return handleGeminiError(error, "I'm having trouble connecting to the server right now. Please try again later.");
   }
 };
 
@@ -110,8 +114,7 @@ Output strictly in Markdown format.
 
     return response.text;
   } catch (error) {
-    console.error("Gemini API Error:", error);
-    return "Unable to generate notes at this time. Please check your connection or API key.";
+    return handleGeminiError(error, "Unable to generate notes at this time. Please check your connection.");
   }
 };
 
@@ -154,8 +157,7 @@ export const solveDoubt = async (doubt: string, imageBase64?: string) => {
 
     return response.text;
   } catch (error) {
-    console.error("Gemini API Error:", error);
-    return "I couldn't solve this doubt right now. Please try again later.";
+    return handleGeminiError(error, "I couldn't solve this doubt right now. Please try again later.");
   }
 };
 
@@ -197,6 +199,11 @@ export const generateQuiz = async (topic: string, difficulty: string): Promise<Q
     return JSON.parse(text) as QuizQuestion[];
   } catch (e) {
     console.error("Failed to generate or parse quiz", e);
+    // If it's a missing key error, we can't really return a QuizQuestion[] easily without changing types, 
+    // but the console log will help.
+    if ((e as any).message === "MISSING_API_KEY") {
+       alert("Configuration Error: API_KEY is missing via Vercel Environment Variables.");
+    }
     return [];
   }
 };
@@ -215,8 +222,7 @@ export const getCareerAdvice = async (profile: string, query: string): Promise<s
     
     return response.text || "I couldn't generate advice at this moment.";
   } catch (error) {
-    console.error("Gemini API Error:", error);
-    return "Service temporarily unavailable. Please try again later.";
+    return handleGeminiError(error, "Service temporarily unavailable. Please try again later.");
   }
 };
 
@@ -255,7 +261,6 @@ export const generateStudyPlan = async (details: {
 
     return response.text;
   } catch (error) {
-    console.error("Gemini API Error:", error);
-    return "I couldn't generate a study plan right now. Please try again later.";
+    return handleGeminiError(error, "I couldn't generate a study plan right now. Please try again later.");
   }
 };
