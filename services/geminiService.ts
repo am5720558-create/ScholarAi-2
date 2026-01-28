@@ -28,15 +28,14 @@ const handleGeminiError = (error: any, defaultMessage: string): string => {
   }
 
   if (errMsg.includes("429") || errString.includes("quota") || errString.includes("resource exhausted")) {
-      return "⚠️ Usage Limit Exceeded: The AI usage limit has been reached. Please try again in a few minutes.";
+      return "⚠️ Usage Limit Exceeded: The free API key quota has been exhausted. Please try again later or use a different key.";
   }
   
   return defaultMessage;
 };
 
 // --- Models ---
-// Basic text: gemini-3-flash-preview
-// Complex reasoning: gemini-3-pro-preview
+// We use gemini-3-flash-preview for better performance and higher rate limits on free tier.
 
 export const chatWithCoach = async (
   history: ChatMessage[], 
@@ -51,7 +50,7 @@ export const chatWithCoach = async (
     }));
 
     const chat = ai.chats.create({
-      model: 'gemini-3-pro-preview',
+      model: 'gemini-3-flash-preview',
       config: {
         systemInstruction: `${SYSTEM_INSTRUCTION_COACH} \n\n User Context: ${userContext}`,
         temperature: 0.7,
@@ -118,7 +117,7 @@ Output strictly in Markdown format.
 `;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview', // Using Pro for better structure
+      model: 'gemini-3-flash-preview',
       contents: prompt,
       config: {
         temperature: 0.3, // Lower temperature for more factual output
@@ -161,7 +160,7 @@ export const solveDoubt = async (doubt: string, imageBase64?: string) => {
     parts.push({ text: prompt });
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
+      model: 'gemini-3-flash-preview',
       contents: { parts },
       config: {
         systemInstruction: "You are an expert academic doubt solver. Be precise, accurate, and easy to understand."
@@ -187,7 +186,7 @@ export const generateQuiz = async (topic: string, difficulty: string): Promise<Q
     - explanation (string, short explanation of why it is correct)`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
+      model: 'gemini-3-flash-preview',
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
@@ -227,7 +226,7 @@ export const getCareerAdvice = async (profile: string, query: string): Promise<s
     const ai = getClient();
     
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
+      model: 'gemini-3-flash-preview',
       contents: `User Profile: ${profile}\n\nUser Query: ${query}\n\nRemember to use Markdown tables for comparisons, Horizontal Rules (---) to separate sections, and bullet points for lists.`,
       config: {
         systemInstruction: SYSTEM_INSTRUCTION_CAREER
@@ -266,7 +265,7 @@ export const generateStudyPlan = async (details: {
     Keep it encouraging and actionable.`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
+      model: 'gemini-3-flash-preview',
       contents: prompt,
       config: {
         temperature: 0.5,
