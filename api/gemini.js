@@ -5,9 +5,6 @@ const MODELS = {
   PRO: 'gemini-3-pro-preview'
 };
 
-// Fallback key for immediate functionality if environment variables fail
-const FALLBACK_KEY = "AIzaSyC2z8t-8PjYH8hRrTRZiTBJz_cz8hvAg4o";
-
 // System instructions
 const SYSTEM_INSTRUCTION_COACH = `You are "ScholarAI Coach", a friendly, encouraging, and intelligent tutor for students (Grade 9 to College) in India.
 GOAL: Explain complex topics simply, using analogies, stories, and memory tricks.
@@ -24,8 +21,8 @@ export default async function handler(request, response) {
     return response.status(200).send('OK');
   }
 
-  // 1. Get API Key (Env Var > Fallback)
-  const apiKey = process.env.API_KEY || FALLBACK_KEY;
+  // 1. Get API Key exclusively from Environment Variables
+  const apiKey = process.env.API_KEY;
 
   if (!apiKey) {
     console.error("CRITICAL: API_KEY is missing in server environment.");
