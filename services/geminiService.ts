@@ -26,7 +26,7 @@ export const chatWithCoach = async (
   }));
 
   const chat = ai.chats.create({
-    model: 'gemini-3-flash-preview',
+    model: 'gemini-3-pro-preview',
     config: {
       systemInstruction: `${SYSTEM_INSTRUCTION_COACH} \n\n User Context: ${userContext}`,
       temperature: 0.7,
@@ -128,7 +128,7 @@ export const solveDoubt = async (doubt: string, imageBase64?: string) => {
   parts.push({ text: prompt });
 
   const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
+    model: 'gemini-3-pro-preview',
     contents: { parts },
     config: {
       systemInstruction: "You are an expert academic doubt solver. Be precise, accurate, and easy to understand."
@@ -150,7 +150,7 @@ export const generateQuiz = async (topic: string, difficulty: string): Promise<Q
   - explanation (string, short explanation of why it is correct)`;
 
   const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
+    model: 'gemini-3-pro-preview',
     contents: prompt,
     config: {
       responseMimeType: 'application/json',
