@@ -6,18 +6,31 @@ const getClient = () => {
   // In Vite via define plugin, this string replacement happens at build time.
   const apiKey = process.env.API_KEY;
   
-  if (!apiKey) {
-    console.error("API_KEY is missing! Please set the API_KEY environment variable in Vercel.");
+  if (!apiKey || apiKey === "undefined") {
+    console.error("API_KEY is missing!");
     throw new Error("MISSING_API_KEY");
   }
   return new GoogleGenAI({ apiKey });
 };
 
 const handleGeminiError = (error: any, defaultMessage: string): string => {
-  console.error("Gemini API Error:", error);
-  if (error.message === "MISSING_API_KEY" || error.toString().includes("MISSING_API_KEY")) {
-    return "⚠️ Configuration Error: API_KEY is missing. Please add the API_KEY environment variable in Vercel and redeploy.";
+  console.error("Gemini API Error Details:", error);
+  
+  const errString = error ? error.toString().toLowerCase() : "";
+  const errMsg = error && error.message ? error.message.toLowerCase() : "";
+
+  if (errMsg.includes("missing_api_key") || errString.includes("missing_api_key")) {
+    return "⚠️ Configuration Error: API_KEY is missing.";
   }
+  
+  if (errMsg.includes("403") || errString.includes("403") || errString.includes("key not valid") || errString.includes("api key")) {
+     return "⚠️ Access Denied: The API Key provided is invalid or expired.";
+  }
+
+  if (errMsg.includes("429") || errString.includes("quota") || errString.includes("resource exhausted")) {
+      return "⚠️ Usage Limit Exceeded: The AI usage limit has been reached. Please try again in a few minutes.";
+  }
+  
   return defaultMessage;
 };
 
@@ -199,10 +212,11 @@ export const generateQuiz = async (topic: string, difficulty: string): Promise<Q
     return JSON.parse(text) as QuizQuestion[];
   } catch (e) {
     console.error("Failed to generate or parse quiz", e);
-    // If it's a missing key error, we can't really return a QuizQuestion[] easily without changing types, 
-    // but the console log will help.
-    if ((e as any).message === "MISSING_API_KEY") {
-       alert("Configuration Error: API_KEY is missing via Vercel Environment Variables.");
+    const errString = e ? e.toString().toLowerCase() : "";
+    if (errString.includes("missing_api_key")) {
+       alert("Configuration Error: API_KEY is missing.");
+    } else if (errString.includes("403") || errString.includes("invalid")) {
+       alert("API Key Error: Invalid or expired key.");
     }
     return [];
   }
