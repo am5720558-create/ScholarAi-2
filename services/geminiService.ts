@@ -3,11 +3,17 @@ import { SYSTEM_INSTRUCTION_COACH, SYSTEM_INSTRUCTION_CAREER } from '../constant
 import { ChatMessage, MessageRole, QuizQuestion, CareerPath } from '../types';
 
 const getClient = () => {
-  if (!process.env.API_KEY) {
-    console.error("API_KEY is missing!");
-    throw new Error("API Key is missing. Please check your environment variables.");
+  // In Vite via define plugin, this string replacement happens at build time.
+  // We check if it exists to prevent runtime crashes.
+  const apiKey = process.env.API_KEY;
+  
+  if (!apiKey) {
+    console.error("API_KEY is missing! Please set the API_KEY environment variable in Vercel.");
+    // We return null here to handle it gracefully in the calling functions, 
+    // or throw a user-friendly error.
+    throw new Error("Service unavailable: API Key is not configured.");
   }
-  return new GoogleGenAI({ apiKey: process.env.API_KEY });
+  return new GoogleGenAI({ apiKey });
 };
 
 // --- Models ---
@@ -19,30 +25,36 @@ export const chatWithCoach = async (
   newMessage: string,
   userContext: string
 ) => {
-  const ai = getClient();
-  const formattedHistory = history.map(msg => ({
-    role: msg.role,
-    parts: [{ text: msg.text }]
-  }));
+  try {
+    const ai = getClient();
+    const formattedHistory = history.map(msg => ({
+      role: msg.role,
+      parts: [{ text: msg.text }]
+    }));
 
-  const chat = ai.chats.create({
-    model: 'gemini-3-pro-preview',
-    config: {
-      systemInstruction: `${SYSTEM_INSTRUCTION_COACH} \n\n User Context: ${userContext}`,
-      temperature: 0.7,
-    },
-    history: formattedHistory
-  });
+    const chat = ai.chats.create({
+      model: 'gemini-3-pro-preview',
+      config: {
+        systemInstruction: `${SYSTEM_INSTRUCTION_COACH} \n\n User Context: ${userContext}`,
+        temperature: 0.7,
+      },
+      history: formattedHistory
+    });
 
-  const response = await chat.sendMessage({ message: newMessage });
-  return response.text;
+    const response = await chat.sendMessage({ message: newMessage });
+    return response.text;
+  } catch (error) {
+    console.error("Gemini API Error:", error);
+    return "I'm having trouble connecting to the server right now. Please try again later.";
+  }
 };
 
 export const generateNotes = async (topicOrText: string) => {
-  const ai = getClient();
-  
-  // Using the expert exam-focused writer prompt
-  const prompt = `
+  try {
+    const ai = getClient();
+    
+    // Using the expert exam-focused writer prompt
+    const prompt = `
 Role:
 You are an expert subject teacher and exam-focused academic content writer.
 
@@ -88,110 +100,124 @@ Content Must Include:
 Output strictly in Markdown format.
 `;
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-pro-preview', // Using Pro for better structure
-    contents: prompt,
-    config: {
-      temperature: 0.3, // Lower temperature for more factual output
-    }
-  });
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-pro-preview', // Using Pro for better structure
+      contents: prompt,
+      config: {
+        temperature: 0.3, // Lower temperature for more factual output
+      }
+    });
 
-  return response.text;
+    return response.text;
+  } catch (error) {
+    console.error("Gemini API Error:", error);
+    return "Unable to generate notes at this time. Please check your connection or API key.";
+  }
 };
 
 export const solveDoubt = async (doubt: string, imageBase64?: string) => {
-  const ai = getClient();
-  
-  const parts: any[] = [];
-  if (imageBase64) {
-    parts.push({
-      inlineData: {
-        mimeType: 'image/jpeg',
-        data: imageBase64
+  try {
+    const ai = getClient();
+    
+    const parts: any[] = [];
+    if (imageBase64) {
+      parts.push({
+        inlineData: {
+          mimeType: 'image/jpeg',
+          data: imageBase64
+        }
+      });
+    }
+    
+    const prompt = `
+    Task: Solve this academic doubt step-by-step.
+    
+    Formatting Requirements:
+    - Use **Markdown** formatting.
+    - Break the solution down into **numbered steps**.
+    - Use **bold** for key numbers and the final answer.
+    - Use **Markdown Tables** if comparing values.
+    - Use **Horizontal Rules (---)** to separate the explanation from the final answer.
+    - If explaining a concept, use **bullet points**.
+    
+    Doubt: ${doubt}`;
+
+    parts.push({ text: prompt });
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-pro-preview',
+      contents: { parts },
+      config: {
+        systemInstruction: "You are an expert academic doubt solver. Be precise, accurate, and easy to understand."
       }
     });
+
+    return response.text;
+  } catch (error) {
+    console.error("Gemini API Error:", error);
+    return "I couldn't solve this doubt right now. Please try again later.";
   }
-  
-  const prompt = `
-  Task: Solve this academic doubt step-by-step.
-  
-  Formatting Requirements:
-  - Use **Markdown** formatting.
-  - Break the solution down into **numbered steps**.
-  - Use **bold** for key numbers and the final answer.
-  - Use **Markdown Tables** if comparing values.
-  - Use **Horizontal Rules (---)** to separate the explanation from the final answer.
-  - If explaining a concept, use **bullet points**.
-  
-  Doubt: ${doubt}`;
-
-  parts.push({ text: prompt });
-
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-pro-preview',
-    contents: { parts },
-    config: {
-      systemInstruction: "You are an expert academic doubt solver. Be precise, accurate, and easy to understand."
-    }
-  });
-
-  return response.text;
 };
 
 export const generateQuiz = async (topic: string, difficulty: string): Promise<QuizQuestion[]> => {
-  const ai = getClient();
-  
-  const prompt = `Generate 5 multiple choice questions (MCQs) for the topic "${topic}" at "${difficulty}" level.
-  Return ONLY a JSON array. Each object should have:
-  - id (number)
-  - question (string)
-  - options (array of 4 strings)
-  - correctAnswer (index of correct option, 0-3)
-  - explanation (string, short explanation of why it is correct)`;
+  try {
+    const ai = getClient();
+    
+    const prompt = `Generate 5 multiple choice questions (MCQs) for the topic "${topic}" at "${difficulty}" level.
+    Return ONLY a JSON array. Each object should have:
+    - id (number)
+    - question (string)
+    - options (array of 4 strings)
+    - correctAnswer (index of correct option, 0-3)
+    - explanation (string, short explanation of why it is correct)`;
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-pro-preview',
-    contents: prompt,
-    config: {
-      responseMimeType: 'application/json',
-      responseSchema: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            id: { type: Type.INTEGER },
-            question: { type: Type.STRING },
-            options: { type: Type.ARRAY, items: { type: Type.STRING } },
-            correctAnswer: { type: Type.INTEGER },
-            explanation: { type: Type.STRING }
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-pro-preview',
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              id: { type: Type.INTEGER },
+              question: { type: Type.STRING },
+              options: { type: Type.ARRAY, items: { type: Type.STRING } },
+              correctAnswer: { type: Type.INTEGER },
+              explanation: { type: Type.STRING }
+            }
           }
         }
       }
-    }
-  });
+    });
 
-  const text = response.text;
-  if (!text) return [];
-  try {
+    const text = response.text;
+    if (!text) return [];
     return JSON.parse(text) as QuizQuestion[];
   } catch (e) {
-    console.error("Failed to parse quiz JSON", e);
+    console.error("Failed to generate or parse quiz", e);
     return [];
   }
 };
 
 export const getCareerAdvice = async (profile: string, query: string): Promise<string> => {
-  const ai = getClient();
-  
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-pro-preview',
-    contents: `User Profile: ${profile}\n\nUser Query: ${query}\n\nRemember to use Markdown tables for comparisons, Horizontal Rules (---) to separate sections, and bullet points for lists.`,
-    config: {
-      systemInstruction: SYSTEM_INSTRUCTION_CAREER
-    }
-  });
-  
-  return response.text || "I couldn't generate advice at this moment.";
+  try {
+    const ai = getClient();
+    
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-pro-preview',
+      contents: `User Profile: ${profile}\n\nUser Query: ${query}\n\nRemember to use Markdown tables for comparisons, Horizontal Rules (---) to separate sections, and bullet points for lists.`,
+      config: {
+        systemInstruction: SYSTEM_INSTRUCTION_CAREER
+      }
+    });
+    
+    return response.text || "I couldn't generate advice at this moment.";
+  } catch (error) {
+    console.error("Gemini API Error:", error);
+    return "Service temporarily unavailable. Please try again later.";
+  }
 };
 
 export const generateStudyPlan = async (details: {
@@ -200,31 +226,36 @@ export const generateStudyPlan = async (details: {
   examDate: string;
   weakAreas: string;
 }) => {
-  const ai = getClient();
-  const prompt = `Create a personalized study plan for a student.
-  
-  Student Details:
-  - Subjects: ${details.subjects}
-  - Target Study Hours/Day: ${details.hoursPerDay}
-  - Upcoming Exam Date: ${details.examDate || 'None specified'}
-  - Weak Areas: ${details.weakAreas}
-  
-  Task:
-  1. Generate a structured weekly timetable. **YOU MUST USE A MARKDOWN TABLE** for the timetable (Day | Time Slot | Subject | Activity).
-  2. Include specific slots for the weak areas.
-  3. Add a small "Strategy Section" at the bottom with 3 **bullet points** on how to improve.
-  4. Use **Bold** for emphasis.
-  5. Use **Horizontal Rules** to separate the plan from the strategy.
-  
-  Keep it encouraging and actionable.`;
+  try {
+    const ai = getClient();
+    const prompt = `Create a personalized study plan for a student.
+    
+    Student Details:
+    - Subjects: ${details.subjects}
+    - Target Study Hours/Day: ${details.hoursPerDay}
+    - Upcoming Exam Date: ${details.examDate || 'None specified'}
+    - Weak Areas: ${details.weakAreas}
+    
+    Task:
+    1. Generate a structured weekly timetable. **YOU MUST USE A MARKDOWN TABLE** for the timetable (Day | Time Slot | Subject | Activity).
+    2. Include specific slots for the weak areas.
+    3. Add a small "Strategy Section" at the bottom with 3 **bullet points** on how to improve.
+    4. Use **Bold** for emphasis.
+    5. Use **Horizontal Rules** to separate the plan from the strategy.
+    
+    Keep it encouraging and actionable.`;
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-pro-preview',
-    contents: prompt,
-    config: {
-      temperature: 0.5,
-    }
-  });
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-pro-preview',
+      contents: prompt,
+      config: {
+        temperature: 0.5,
+      }
+    });
 
-  return response.text;
+    return response.text;
+  } catch (error) {
+    console.error("Gemini API Error:", error);
+    return "I couldn't generate a study plan right now. Please try again later.";
+  }
 };
