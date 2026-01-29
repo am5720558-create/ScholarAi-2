@@ -4,26 +4,34 @@ import { config } from 'dotenv';
 import fs from 'fs';
 import { GoogleGenAI } from "@google/genai";
 
-// Load environment variables
-// 1. Try standard loading (works in most production/vercel environments)
+// 1. Try standard dotenv loading
 config();
 
-// 2. Manual Fallback: Explicitly look for .env in the current working directory
-// This is often needed for 'vercel dev' or local node execution where the root might differ
+// 2. Manual Fallback: Read .env file directly if process.env.API_KEY is still missing
+// This fixes issues where the process cwd is different from the project root
 if (!process.env.API_KEY) {
-  const rootEnvPath = join(process.cwd(), '.env');
-  if (fs.existsSync(rootEnvPath)) {
-    console.log(`Loading .env from: ${rootEnvPath}`);
-    config({ path: rootEnvPath });
-  } else {
-    // 3. Fallback: Look one level up from this file (useful if CWD is /api)
+  try {
     const __filename = fileURLToPath(import.meta.url);
     const __dirname = dirname(__filename);
-    const parentEnvPath = resolve(__dirname, '..', '.env');
-    if (fs.existsSync(parentEnvPath)) {
-       console.log(`Loading .env from: ${parentEnvPath}`);
-       config({ path: parentEnvPath });
+    
+    // Look for .env in the project root (one level up from /api)
+    const envPath = resolve(__dirname, '..', '.env');
+    
+    if (fs.existsSync(envPath)) {
+      console.log(`Found .env file at: ${envPath}`);
+      const fileContent = fs.readFileSync(envPath, 'utf8');
+      
+      // specific regex to capture API_KEY value, handling potential quotes
+      const match = fileContent.match(/^API_KEY=["']?([^"'\n]+)["']?$/m);
+      if (match && match[1]) {
+        process.env.API_KEY = match[1].trim();
+        console.log("Successfully loaded API_KEY manually from file.");
+      }
+    } else {
+      console.warn(`Warning: .env file not found at ${envPath}`);
     }
+  } catch (err) {
+    console.error("Error manually reading .env file:", err);
   }
 }
 
@@ -51,17 +59,16 @@ export default async function handler(request, response) {
   try {
     const apiKey = process.env.API_KEY;
 
-    // Detailed Debugging for the user
+    // Debugging logs
     if (!apiKey) {
-      console.error("CRITICAL ERROR: API_KEY is missing from process.env");
-      console.error(`Current Directory: ${process.cwd()}`);
+      console.error("CRITICAL ERROR: API_KEY is undefined in handler.");
     } else {
-      console.log(`API Key status: Loaded (Ends with ...${apiKey.slice(-4)})`);
+      console.log(`API_KEY loaded successfully. Ends with: ...${apiKey.slice(-4)}`);
     }
 
-    if (!apiKey || apiKey.includes('PASTE_YOUR') || apiKey.length < 20) {
+    if (!apiKey || apiKey === 'PASTE_YOUR_NEW_GEMINI_API_KEY_HERE') {
       return response.status(500).json({ 
-        error: "Server Configuration Error: API_KEY is missing or invalid. Please check your .env file." 
+        error: "Server Configuration Error: API_KEY is missing. Check your .env file." 
       });
     }
 
