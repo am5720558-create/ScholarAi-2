@@ -15,13 +15,15 @@ CONTENT: Guidance on streams, degrees, scope, salary (INR), difficulty.`;
 
 const MODELS = {
   FAST: 'gemini-3-flash-preview',
-  PRO: 'gemini-3-pro-preview'
+  PRO: 'gemini-3-pro-preview',
+  // Fallback to 2.0 Flash Exp which typically has higher/separate quotas than the strict 3-preview
+  BACKUP: 'gemini-2.0-flash-exp'
 };
 
 const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 export default async function handler(request, response) {
-  // --- 1. CORS Headers (Fixes domain issues) ---
+  // --- 1. CORS Headers ---
   response.setHeader('Access-Control-Allow-Credentials', true);
   response.setHeader('Access-Control-Allow-Origin', '*'); 
   response.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
@@ -41,25 +43,14 @@ export default async function handler(request, response) {
   try {
     // --- 2. Smart API Key Detection ---
     let apiKey = process.env.API_KEY;
-
-    // If API_KEY is missing, search for ANY variable that looks like a Gemini Key (starts with AIzaSy)
     if (!apiKey) {
       const foundKeyName = Object.keys(process.env).find(k => 
         typeof process.env[k] === 'string' && process.env[k].startsWith('AIzaSy')
       );
-      
-      if (foundKeyName) {
-        console.log(`[Gemini] API_KEY not found, but found valid key in: ${foundKeyName}`);
-        apiKey = process.env[foundKeyName];
-      }
+      if (foundKeyName) apiKey = process.env[foundKeyName];
     }
-
-    // 3. Final Check
     if (!apiKey) {
-      console.error("CRITICAL ERROR: No environment variable found starting with 'AIzaSy'.");
-      return response.status(500).json({ 
-        error: "Server Error: API Key missing. Please add 'API_KEY' in Vercel Settings." 
-      });
+      return response.status(500).json({ error: "Server Error: API Key missing." });
     }
 
     const genAI = new GoogleGenAI({ apiKey });
@@ -89,12 +80,13 @@ export default async function handler(request, response) {
           console.warn(`[Gemini] Attempt ${attempt} failed (${error.status}). Retrying in ${delayTime}ms...`);
           await wait(delayTime);
 
-          if (currentModel === MODELS.PRO) {
-             console.log(`[Gemini] Switching to ${MODELS.FAST} for fallback.`);
-             currentModel = MODELS.FAST;
-             if (currentParams.config && currentParams.config.thinkingConfig) {
-               delete currentParams.config.thinkingConfig;
-             }
+          // FALLBACK STRATEGY: Switch to Backup Model on error
+          console.log(`[Gemini] Switching to ${MODELS.BACKUP} for fallback.`);
+          currentModel = MODELS.BACKUP;
+          
+          // Remove config options that might not be supported by the backup model (like thinkingConfig)
+          if (currentParams.config && currentParams.config.thinkingConfig) {
+            delete currentParams.config.thinkingConfig;
           }
         }
       }
@@ -115,27 +107,33 @@ export default async function handler(request, response) {
           role: msg.role,
           parts: [{ text: msg.text }]
         }));
-
-        const chat = genAI.chats.create({
-          model: MODELS.FAST,
-          config: {
-            systemInstruction: `${SYSTEM_INSTRUCTION_COACH} \n\n User Context: ${userContext}`,
-            temperature: 0.7,
-          },
-          history: formattedHistory
-        });
         
-        try {
-          const res = await chat.sendMessage({ message: newMessage });
-          resultText = res.text;
-        } catch (error) {
-           if (error.status === 429 || error.status === 503) {
-             await wait(1500);
-             const res = await chat.sendMessage({ message: newMessage });
-             resultText = res.text;
-           } else {
-             throw error;
-           }
+        const systemInstruction = `${SYSTEM_INSTRUCTION_COACH} \n\n User Context: ${userContext}`;
+        
+        // Manual retry loop for Chat to handle model switching
+        let currentModel = MODELS.FAST;
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+                const chatSession = genAI.chats.create({
+                    model: currentModel,
+                    config: {
+                        systemInstruction,
+                        temperature: 0.7,
+                    },
+                    history: formattedHistory
+                });
+                const res = await chatSession.sendMessage({ message: newMessage });
+                resultText = res.text;
+                break; // Success
+            } catch (error) {
+                if ((error.status === 429 || error.status === 503) && attempt < 3) {
+                     console.warn(`[Gemini Chat] Attempt ${attempt} failed. Retrying with backup...`);
+                     await wait(1000 * attempt);
+                     currentModel = MODELS.BACKUP; 
+                } else {
+                    throw error;
+                }
+            }
         }
         break;
       }
@@ -221,12 +219,10 @@ export default async function handler(request, response) {
 
   } catch (error) {
     console.error("Gemini API Runtime Error:", error);
-    
     let userMessage = error.message;
     if (error.status === 429 || error.status === 503) {
       userMessage = "We are currently experiencing high traffic. Please try again in a few moments.";
     }
-
     return response.status(500).json({ error: userMessage });
   }
 }
