@@ -1,5 +1,25 @@
-import 'dotenv/config';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+import { config } from 'dotenv';
 import { GoogleGenAI } from "@google/genai";
+
+// Robust .env loading strategy
+// 1. Try default loading (process.cwd)
+config();
+
+// 2. If not found, try resolving relative to this file
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+if (!process.env.API_KEY) {
+    // Check in parent directory (root) if running from api/
+    config({ path: join(__dirname, '..', '.env') });
+}
+
+if (!process.env.API_KEY) {
+    // Check in current working directory explicitly
+    config({ path: join(process.cwd(), '.env') });
+}
 
 const MODELS = {
   FAST: 'gemini-3-flash-preview',
@@ -23,19 +43,21 @@ export default async function handler(request, response) {
   }
 
   try {
-    // 1. Get API Key exclusively from Environment Variables
+    // 1. Get API Key from Environment Variables
     const apiKey = process.env.API_KEY;
 
-    // Debug log (masked)
+    // Debug log to Server Console
     if (apiKey) {
-      console.log(`API Key loaded: ${apiKey.substring(0, 4)}...${apiKey.substring(apiKey.length - 4)}`);
+      console.log(`API Key status: Loaded (Ends with ...${apiKey.slice(-4)})`);
     } else {
-      console.error("CRITICAL: API_KEY is missing in server environment variables.");
+      console.error(`CRITICAL: API_KEY missing in process.env`);
+      console.error(`Current Working Directory: ${process.cwd()}`);
+      console.error(`__dirname: ${__dirname}`);
     }
 
     if (!apiKey || apiKey === 'PASTE_YOUR_NEW_GEMINI_API_KEY_HERE') {
       return response.status(500).json({ 
-        error: "Server Configuration Error: API_KEY is missing or invalid. Please set a valid key in Vercel Settings or .env file." 
+        error: "Server Configuration Error: API_KEY is missing or invalid. If running locally, check .env. If deployed on Vercel, check Project Settings > Environment Variables." 
       });
     }
 
@@ -63,7 +85,7 @@ export default async function handler(request, response) {
           parts: [{ text: msg.text }]
         }));
         
-        // Chat uses Flash for low latency and high throughput
+        // Chat uses Flash for low latency
         const chat = genAI.chats.create({
           model: MODELS.FAST,
           config: {
@@ -83,7 +105,7 @@ export default async function handler(request, response) {
         Include: Definitions, Formulas (in Tables), Comparisons (in Tables), Step-by-step methods. 
         Format: Markdown with Headers (##) and Horizontal Rules (---).`;
         
-        // Notes generation uses Flash for speed
+        // Notes generation uses Flash
         const res = await genAI.models.generateContent({
           model: MODELS.FAST,
           contents: prompt,
@@ -101,14 +123,13 @@ export default async function handler(request, response) {
         }
         parts.push({ text: `Solve this academic doubt step-by-step using Markdown. Doubt: ${doubt}` });
 
-        // Doubt solving uses Pro model for better reasoning capabilities in STEM
-        // Enabled Thinking Config for complex problem solving (Math/Science)
+        // Doubt solving uses Pro with Thinking
         const res = await genAI.models.generateContent({
           model: MODELS.PRO,
           contents: { parts },
           config: { 
             systemInstruction: "You are an expert academic doubt solver. Think through the problem step-by-step.",
-            thinkingConfig: { thinkingBudget: 2048 } // Budget for reasoning tokens
+            thinkingConfig: { thinkingBudget: 2048 }
           }
         });
         resultText = res.text;
@@ -120,7 +141,6 @@ export default async function handler(request, response) {
         const prompt = `Generate 5 multiple choice questions (MCQs) for "${topic}" at "${difficulty}" level.
         Return ONLY a JSON array. Keys: id, question, options (array), correctAnswer (index), explanation.`;
 
-        // Quiz generation is structured data, Flash is sufficient and faster
         const res = await genAI.models.generateContent({
           model: MODELS.FAST,
           contents: prompt,
@@ -135,7 +155,6 @@ export default async function handler(request, response) {
 
       case 'career': {
         const { profile, query } = body;
-        // Career advice requires nuanced reasoning, using Pro
         const res = await genAI.models.generateContent({
           model: MODELS.PRO,
           contents: `User Profile: ${profile}\n\nUser Query: ${query}\n\nUse Markdown tables and bullet points.`,
@@ -151,7 +170,6 @@ export default async function handler(request, response) {
         Exam: ${details.examDate}. Weakness: ${details.weakAreas}.
         Output: Weekly timetable in Markdown Table. Strategy section with bullet points.`;
         
-        // Planning requires reasoning to balance schedules, using Pro
         const res = await genAI.models.generateContent({
           model: MODELS.PRO,
           contents: prompt,
@@ -166,14 +184,13 @@ export default async function handler(request, response) {
     }
 
     if (!resultText) {
-       throw new Error("AI response was empty. The content might have been blocked by safety filters.");
+       throw new Error("AI response was empty. Content might be blocked.");
     }
 
     return response.status(200).json({ result: resultText });
 
   } catch (error) {
     console.error("Server AI Error:", error);
-    // Propagate the specific error code to the client
     return response.status(500).json({ error: error.message || "Internal Server Error" });
   }
 }
