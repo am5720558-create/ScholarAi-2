@@ -18,6 +18,8 @@ const MODELS = {
   PRO: 'gemini-3-pro-preview'
 };
 
+const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 export default async function handler(request, response) {
   if (request.method === 'OPTIONS') {
     return response.status(200).send('OK');
@@ -45,31 +47,46 @@ export default async function handler(request, response) {
 
     const genAI = new GoogleGenAI({ apiKey });
     
-    // --- SMART FALLBACK HELPER ---
-    // If the primary model fails due to quota (429) or overload (503), try the FAST model.
-    const generateWithFallback = async (primaryModel, params) => {
-      try {
-        return await genAI.models.generateContent({
-          model: primaryModel,
-          ...params
-        });
-      } catch (error) {
-        // Check for Quota Exceeded (429) or Service Unavailable (503)
-        if (error.status === 429 || error.status === 503) {
-          console.warn(`[Gemini] Model ${primaryModel} quota exceeded or busy. Falling back to ${MODELS.FAST}.`);
-          
-          // If we were already using FAST, we can't fallback further
-          if (primaryModel === MODELS.FAST) {
-            throw new Error("System is currently experiencing high traffic. Please try again in a minute.");
+    // --- ROBUST RETRY & FALLBACK LOGIC ---
+    // Attempts: 1. Primary Model -> 2. Flash (after 1s) -> 3. Flash (after 2s)
+    const generateWithRetry = async (primaryModel, params) => {
+      let currentModel = primaryModel;
+      // Deep copy params to allow modification during fallback
+      let currentParams = JSON.parse(JSON.stringify(params));
+      
+      const MAX_RETRIES = 3;
+
+      for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        try {
+          return await genAI.models.generateContent({
+            model: currentModel,
+            ...currentParams
+          });
+        } catch (error) {
+          const isRetryable = error.status === 429 || error.status === 503;
+          const isLastAttempt = attempt === MAX_RETRIES;
+
+          if (!isRetryable || isLastAttempt) {
+            console.error(`[Gemini] Final failure on attempt ${attempt}:`, error.message);
+            throw error;
           }
 
-          // Retry with the lighter Flash model
-          return await genAI.models.generateContent({
-            model: MODELS.FAST,
-            ...params
-          });
+          const delayTime = 1000 * Math.pow(2, attempt - 1); // 1000ms, 2000ms
+          console.warn(`[Gemini] Attempt ${attempt} failed (${error.status}). Retrying in ${delayTime}ms...`);
+          
+          await wait(delayTime);
+
+          // FALLBACK STRATEGY:
+          // If we were using PRO, switch to FAST for the next attempt.
+          // Also remove 'thinkingConfig' as it adds overhead/latency.
+          if (currentModel === MODELS.PRO) {
+             console.log(`[Gemini] Switching to ${MODELS.FAST} for fallback.`);
+             currentModel = MODELS.FAST;
+             if (currentParams.config && currentParams.config.thinkingConfig) {
+               delete currentParams.config.thinkingConfig;
+             }
+          }
         }
-        throw error;
       }
     };
 
@@ -89,7 +106,6 @@ export default async function handler(request, response) {
           parts: [{ text: msg.text }]
         }));
 
-        // Chat uses FAST model by default, so usually safe from Pro limits.
         const chat = genAI.chats.create({
           model: MODELS.FAST,
           config: {
@@ -99,8 +115,20 @@ export default async function handler(request, response) {
           history: formattedHistory
         });
         
-        const res = await chat.sendMessage({ message: newMessage });
-        resultText = res.text;
+        // Chat doesn't use the wrapper yet as it uses chat.sendMessage
+        // We implement a simple retry for chat specifically
+        try {
+          const res = await chat.sendMessage({ message: newMessage });
+          resultText = res.text;
+        } catch (error) {
+           if (error.status === 429 || error.status === 503) {
+             await wait(1500);
+             const res = await chat.sendMessage({ message: newMessage });
+             resultText = res.text;
+           } else {
+             throw error;
+           }
+        }
         break;
       }
 
@@ -110,7 +138,7 @@ export default async function handler(request, response) {
         Include: Definitions, Formulas (in Tables), Comparisons (in Tables), Step-by-step methods. 
         Format: Markdown with Headers (##) and Horizontal Rules (---).`;
 
-        const res = await generateWithFallback(MODELS.FAST, {
+        const res = await generateWithRetry(MODELS.FAST, {
           contents: prompt,
           config: { temperature: 0.3 }
         });
@@ -126,8 +154,7 @@ export default async function handler(request, response) {
         }
         parts.push({ text: `Solve this academic doubt step-by-step using Markdown. Doubt: ${doubt}` });
 
-        // Tries PRO first (better reasoning), falls back to FAST if quota exceeded
-        const res = await generateWithFallback(MODELS.PRO, {
+        const res = await generateWithRetry(MODELS.PRO, {
           contents: { parts },
           config: { 
             systemInstruction: "You are an expert academic doubt solver. Think through the problem step-by-step.",
@@ -143,7 +170,7 @@ export default async function handler(request, response) {
         const prompt = `Generate 5 multiple choice questions (MCQs) for "${topic}" at "${difficulty}" level.
         Return ONLY a JSON array. Keys: id, question, options (array), correctAnswer (index), explanation.`;
 
-        const res = await generateWithFallback(MODELS.FAST, {
+        const res = await generateWithRetry(MODELS.FAST, {
           contents: prompt,
           config: {
             responseMimeType: 'application/json'
@@ -156,8 +183,7 @@ export default async function handler(request, response) {
 
       case 'career': {
         const { profile, query } = body;
-        // Tries PRO first, falls back to FAST
-        const res = await generateWithFallback(MODELS.PRO, {
+        const res = await generateWithRetry(MODELS.PRO, {
           contents: `User Profile: ${profile}\n\nUser Query: ${query}\n\nUse Markdown tables and bullet points.`,
           config: { systemInstruction: SYSTEM_INSTRUCTION_CAREER }
         });
@@ -171,8 +197,7 @@ export default async function handler(request, response) {
         Exam: ${details.examDate}. Weakness: ${details.weakAreas}.
         Output: Weekly timetable in Markdown Table. Strategy section with bullet points.`;
 
-        // Tries PRO first, falls back to FAST
-        const res = await generateWithFallback(MODELS.PRO, {
+        const res = await generateWithRetry(MODELS.PRO, {
           contents: prompt,
           config: { temperature: 0.5 }
         });
@@ -189,10 +214,9 @@ export default async function handler(request, response) {
   } catch (error) {
     console.error("Gemini API Runtime Error:", error);
     
-    // Send a cleaner error message to the user if all retries fail
     let userMessage = error.message;
-    if (error.status === 429) {
-      userMessage = "We are currently experiencing high traffic. Please try again in a few moments.";
+    if (error.status === 429 || error.status === 503) {
+      userMessage = "High traffic at the moment. Please wait 30 seconds and try again.";
     }
 
     return response.status(500).json({ error: userMessage });
