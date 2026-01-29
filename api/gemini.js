@@ -21,8 +21,17 @@ const MODELS = {
 const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 export default async function handler(request, response) {
+  // --- 1. CORS Headers (Fixes domain issues) ---
+  response.setHeader('Access-Control-Allow-Credentials', true);
+  response.setHeader('Access-Control-Allow-Origin', '*'); 
+  response.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
+  response.setHeader(
+    'Access-Control-Allow-Headers',
+    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
+  );
+
   if (request.method === 'OPTIONS') {
-    return response.status(200).send('OK');
+    return response.status(200).end();
   }
 
   if (request.method !== 'POST') {
@@ -30,34 +39,35 @@ export default async function handler(request, response) {
   }
 
   try {
-    // 1. Strict API Key Read - Matches the Key name 'API_KEY'
-    const apiKey = process.env.API_KEY;
+    // --- 2. Smart API Key Detection ---
+    let apiKey = process.env.API_KEY;
 
-    // 2. Diagnostic Check for User Configuration Error
+    // If API_KEY is missing, search for ANY variable that looks like a Gemini Key (starts with AIzaSy)
     if (!apiKey) {
-      // Check if user accidentally pasted the Key into the Name field (common Vercel mistake)
-      const possibleMisplacedKey = Object.keys(process.env).find(k => k.startsWith('AIzaSy'));
+      const foundKeyName = Object.keys(process.env).find(k => 
+        typeof process.env[k] === 'string' && process.env[k].startsWith('AIzaSy')
+      );
       
-      if (possibleMisplacedKey) {
-        const errorMsg = "CONFIGURATION ERROR: It appears the API Key was pasted into the 'Key' field in Vercel. Please go to Vercel Settings > Environment Variables. Set Key='API_KEY' and Value='AIzaSy...'";
-        console.error(errorMsg);
-        return response.status(500).json({ error: errorMsg });
+      if (foundKeyName) {
+        console.log(`[Gemini] API_KEY not found, but found valid key in: ${foundKeyName}`);
+        apiKey = process.env[foundKeyName];
       }
+    }
 
+    // 3. Final Check
+    if (!apiKey) {
+      console.error("CRITICAL ERROR: No environment variable found starting with 'AIzaSy'.");
       return response.status(500).json({ 
-        error: "Server Error: API_KEY is not defined in environment variables." 
+        error: "Server Error: API Key missing. Please add 'API_KEY' in Vercel Settings." 
       });
     }
 
     const genAI = new GoogleGenAI({ apiKey });
     
     // --- ROBUST RETRY & FALLBACK LOGIC ---
-    // Attempts: 1. Primary Model -> 2. Flash (after 1s) -> 3. Flash (after 2s)
     const generateWithRetry = async (primaryModel, params) => {
       let currentModel = primaryModel;
-      // Deep copy params to allow modification during fallback
       let currentParams = JSON.parse(JSON.stringify(params));
-      
       const MAX_RETRIES = 3;
 
       for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
@@ -75,14 +85,10 @@ export default async function handler(request, response) {
             throw error;
           }
 
-          const delayTime = 1000 * Math.pow(2, attempt - 1); // 1000ms, 2000ms
+          const delayTime = 1000 * Math.pow(2, attempt - 1);
           console.warn(`[Gemini] Attempt ${attempt} failed (${error.status}). Retrying in ${delayTime}ms...`);
-          
           await wait(delayTime);
 
-          // FALLBACK STRATEGY:
-          // If we were using PRO, switch to FAST for the next attempt.
-          // Also remove 'thinkingConfig' as it adds overhead/latency.
           if (currentModel === MODELS.PRO) {
              console.log(`[Gemini] Switching to ${MODELS.FAST} for fallback.`);
              currentModel = MODELS.FAST;
@@ -123,7 +129,6 @@ export default async function handler(request, response) {
           const res = await chat.sendMessage({ message: newMessage });
           resultText = res.text;
         } catch (error) {
-           // Simple retry for chat to reduce latency
            if (error.status === 429 || error.status === 503) {
              await wait(1500);
              const res = await chat.sendMessage({ message: newMessage });
@@ -157,7 +162,6 @@ export default async function handler(request, response) {
         }
         parts.push({ text: `Solve this academic doubt step-by-step using Markdown. Doubt: ${doubt}` });
 
-        // Tries PRO first (better reasoning), falls back to FAST if quota exceeded
         const res = await generateWithRetry(MODELS.PRO, {
           contents: { parts },
           config: { 
