@@ -13,5 +13,13 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './')
     }
+  },
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3000', // Points to Vercel Dev or Node server if running locally
+        changeOrigin: true,
+      }
+    }
   }
 })

@@ -18,7 +18,7 @@ const getClientAI = () => {
 const clientSideHandler = async (endpoint: string, body: any) => {
   const ai = getClientAI();
   if (!ai) {
-    throw new Error("MISSING_KEY");
+    throw new Error("MISSING_LOCAL_KEY");
   }
 
   switch (endpoint) {
@@ -114,8 +114,10 @@ const clientSideHandler = async (endpoint: string, body: any) => {
 // --- Main Service Function ---
 
 const callService = async (endpoint: string, body: any) => {
+  let backendError: any = null;
+
+  // 1. Try Backend
   try {
-    // 1. Try Backend
     const response = await fetch('/api/gemini', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -123,35 +125,52 @@ const callService = async (endpoint: string, body: any) => {
     });
 
     const contentType = response.headers.get("content-type");
+    
+    // Check if we got an HTML error page (Vercel 404/500)
     if (contentType && contentType.includes("text/html")) {
-      // This catches Vercel 404/500 pages or standard Vite index.html fallback
-      throw new Error("BACKEND_UNREACHABLE");
-    }
-
-    if (!response.ok) {
-       // If backend is present but errored (e.g. 500), try to read error
-       // If it's a config error (missing key), we might want to fallback.
-       const errData = await response.json().catch(() => ({}));
-       throw new Error(errData.error || `HTTP ${response.status}`);
+      throw new Error("BACKEND_HTML_ERROR"); // Usually means 404 (Function not found) or 500 (Crash)
     }
 
     const data = await response.json();
+
+    if (!response.ok) {
+       // If the server explicitly told us what's wrong (e.g., Missing API Key),
+       // we should RETURN that message directly and NOT fallback to client side.
+       // This prevents masking deployment errors.
+       if (data.error && (data.error.includes("Server Error") || data.error.includes("API Key"))) {
+          return `⚠️ **Deployment Config Error**: ${data.error}\n\nGo to Vercel Settings > Environment Variables and ensure 'API_KEY' is set.`;
+       }
+       throw new Error(data.error || `HTTP ${response.status}`);
+    }
+
     return data.result;
 
   } catch (error: any) {
-    console.warn("Backend call failed, attempting client-side fallback...", error.message);
-    
-    // 2. Fallback to Client Side
-    try {
-      const result = await clientSideHandler(endpoint, body);
-      return result;
-    } catch (clientError: any) {
-      if (clientError.message === "MISSING_KEY") {
-        return "⚠️ **Configuration Needed**: The backend is not reachable and no local API Key is set.\n\nPlease click the **Settings (⚙️)** icon in the top right and enter your Gemini API Key to use the app in Local/Preview mode.";
+    backendError = error;
+    console.warn("Backend call failed:", error.message);
+  }
+
+  // 2. Fallback to Client Side (Only if backend was unreachable or generic error)
+  try {
+    const result = await clientSideHandler(endpoint, body);
+    return result;
+  } catch (clientError: any) {
+    // If client side also fails (because no local key is set), explain WHY backend failed.
+    if (clientError.message === "MISSING_LOCAL_KEY") {
+      
+      if (backendError?.message === "BACKEND_HTML_ERROR") {
+        return "⚠️ **Backend Unreachable (404)**: The server API file `api/gemini.js` was not found.\n\n**Solution:**\n1. Ensure `api/gemini.js` exists in your repo.\n2. Ensure `vercel.json` is configured correctly.\n3. **Or** click Settings (⚙️) to use a Local API Key.";
       }
-      console.error("Client side error:", clientError);
-      return `⚠️ **Error**: ${clientError.message || "Something went wrong."}`;
+
+      if (backendError?.message.includes("HTTP 500")) {
+        return "⚠️ **Server Error (500)**: The backend crashed. Check Vercel Function Logs for details.\n\n**Or** click Settings (⚙️) to use a Local API Key.";
+      }
+      
+      return "⚠️ **Configuration Needed**: The backend is not responding and no Local API Key is set.\n\n**To fix:** Click the **Settings (⚙️)** icon in the top right and enter your Gemini API Key.";
     }
+    
+    console.error("Client side error:", clientError);
+    return `⚠️ **Error**: ${clientError.message || "Unknown error occurred"}`;
   }
 };
 
