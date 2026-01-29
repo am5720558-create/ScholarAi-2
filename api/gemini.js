@@ -28,30 +28,51 @@ export default async function handler(request, response) {
   }
 
   try {
-    // 1. Strict API Key Read
     const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
 
-    // 2. Diagnostic Check for User Configuration Error
     if (!apiKey) {
-      // Check if user accidentally pasted the Key into the Name field
+      // Diagnostic check for common config error
       const possibleMisplacedKey = Object.keys(process.env).find(k => k.startsWith('AIzaSy'));
-      
-      console.error("DEBUG: GOOGLE_GENERATIVE_AI_API_KEY is missing.");
-      console.log("DEBUG: Available Env Keys:", Object.keys(process.env));
-
       if (possibleMisplacedKey) {
-        const errorMsg = "CONFIGURATION ERROR: It appears the API Key was pasted into the 'Name' field in Vercel. Please go to Vercel Settings > Environment Variables, create a key named 'GOOGLE_GENERATIVE_AI_API_KEY', and paste the API Key into the 'Value' field.";
+        const errorMsg = "CONFIGURATION ERROR: API Key pasted in 'Name' field. Please fix in Vercel Settings.";
         console.error(errorMsg);
         return response.status(500).json({ error: errorMsg });
       }
-
       return response.status(500).json({ 
-        error: "Server Error: GOOGLE_GENERATIVE_AI_API_KEY is not defined in Vercel Environment Variables." 
+        error: "Server Error: GOOGLE_GENERATIVE_AI_API_KEY is missing." 
       });
     }
 
     const genAI = new GoogleGenAI({ apiKey });
     
+    // --- SMART FALLBACK HELPER ---
+    // If the primary model fails due to quota (429) or overload (503), try the FAST model.
+    const generateWithFallback = async (primaryModel, params) => {
+      try {
+        return await genAI.models.generateContent({
+          model: primaryModel,
+          ...params
+        });
+      } catch (error) {
+        // Check for Quota Exceeded (429) or Service Unavailable (503)
+        if (error.status === 429 || error.status === 503) {
+          console.warn(`[Gemini] Model ${primaryModel} quota exceeded or busy. Falling back to ${MODELS.FAST}.`);
+          
+          // If we were already using FAST, we can't fallback further
+          if (primaryModel === MODELS.FAST) {
+            throw new Error("System is currently experiencing high traffic. Please try again in a minute.");
+          }
+
+          // Retry with the lighter Flash model
+          return await genAI.models.generateContent({
+            model: MODELS.FAST,
+            ...params
+          });
+        }
+        throw error;
+      }
+    };
+
     if (!request.body) {
       return response.status(400).json({ error: "Missing request body" });
     }
@@ -68,6 +89,7 @@ export default async function handler(request, response) {
           parts: [{ text: msg.text }]
         }));
 
+        // Chat uses FAST model by default, so usually safe from Pro limits.
         const chat = genAI.chats.create({
           model: MODELS.FAST,
           config: {
@@ -88,8 +110,7 @@ export default async function handler(request, response) {
         Include: Definitions, Formulas (in Tables), Comparisons (in Tables), Step-by-step methods. 
         Format: Markdown with Headers (##) and Horizontal Rules (---).`;
 
-        const res = await genAI.models.generateContent({
-          model: MODELS.FAST,
+        const res = await generateWithFallback(MODELS.FAST, {
           contents: prompt,
           config: { temperature: 0.3 }
         });
@@ -105,8 +126,8 @@ export default async function handler(request, response) {
         }
         parts.push({ text: `Solve this academic doubt step-by-step using Markdown. Doubt: ${doubt}` });
 
-        const res = await genAI.models.generateContent({
-          model: MODELS.PRO,
+        // Tries PRO first (better reasoning), falls back to FAST if quota exceeded
+        const res = await generateWithFallback(MODELS.PRO, {
           contents: { parts },
           config: { 
             systemInstruction: "You are an expert academic doubt solver. Think through the problem step-by-step.",
@@ -122,8 +143,7 @@ export default async function handler(request, response) {
         const prompt = `Generate 5 multiple choice questions (MCQs) for "${topic}" at "${difficulty}" level.
         Return ONLY a JSON array. Keys: id, question, options (array), correctAnswer (index), explanation.`;
 
-        const res = await genAI.models.generateContent({
-          model: MODELS.FAST,
+        const res = await generateWithFallback(MODELS.FAST, {
           contents: prompt,
           config: {
             responseMimeType: 'application/json'
@@ -136,8 +156,8 @@ export default async function handler(request, response) {
 
       case 'career': {
         const { profile, query } = body;
-        const res = await genAI.models.generateContent({
-          model: MODELS.PRO,
+        // Tries PRO first, falls back to FAST
+        const res = await generateWithFallback(MODELS.PRO, {
           contents: `User Profile: ${profile}\n\nUser Query: ${query}\n\nUse Markdown tables and bullet points.`,
           config: { systemInstruction: SYSTEM_INSTRUCTION_CAREER }
         });
@@ -151,8 +171,8 @@ export default async function handler(request, response) {
         Exam: ${details.examDate}. Weakness: ${details.weakAreas}.
         Output: Weekly timetable in Markdown Table. Strategy section with bullet points.`;
 
-        const res = await genAI.models.generateContent({
-          model: MODELS.PRO,
+        // Tries PRO first, falls back to FAST
+        const res = await generateWithFallback(MODELS.PRO, {
           contents: prompt,
           config: { temperature: 0.5 }
         });
@@ -168,6 +188,13 @@ export default async function handler(request, response) {
 
   } catch (error) {
     console.error("Gemini API Runtime Error:", error);
-    return response.status(500).json({ error: error.message });
+    
+    // Send a cleaner error message to the user if all retries fail
+    let userMessage = error.message;
+    if (error.status === 429) {
+      userMessage = "We are currently experiencing high traffic. Please try again in a few moments.";
+    }
+
+    return response.status(500).json({ error: userMessage });
   }
 }
