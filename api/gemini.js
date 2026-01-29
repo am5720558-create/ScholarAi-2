@@ -1,7 +1,10 @@
 import { GoogleGenAI } from "@google/genai";
-import 'dotenv/config';
 
-// Constants defined here to ensure the serverless function is self-contained
+// 1. Force Vercel to use Node.js runtime (Critical for @google/genai)
+export const config = {
+  runtime: 'nodejs',
+};
+
 const SYSTEM_INSTRUCTION_COACH = `You are "ScholarAI Coach", a friendly, encouraging, and intelligent tutor for students (Grade 9 to College) in India.
 GOAL: Explain complex topics simply, using analogies, stories, and memory tricks.
 FORMATTING: Use Markdown, Headings, Bullet points, Tables, Bold text.
@@ -17,7 +20,7 @@ const MODELS = {
 };
 
 export default async function handler(request, response) {
-  // Handle CORS options for local dev or cross-origin if needed
+  // Handle CORS options
   if (request.method === 'OPTIONS') {
     return response.status(200).send('OK');
   }
@@ -27,17 +30,19 @@ export default async function handler(request, response) {
   }
 
   try {
-    // 1. Strict Key Check - Only look for the Vercel/System Env Var
-    const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+    // 2. Read API Key with Fallback
+    // Vercel injects these automatically in production. No dotenv needed.
+    const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.API_KEY;
     
+    // 3. Debug Logging (Visible in Vercel Functions Logs)
     if (!apiKey) {
-      console.error("CRITICAL: GOOGLE_GENERATIVE_AI_API_KEY is missing in environment variables.");
+      console.error("DEBUG: Environment Variables Keys Available:", Object.keys(process.env));
       return response.status(500).json({ 
-        error: "Server Configuration Error: GOOGLE_GENERATIVE_AI_API_KEY is missing. Please add it to Vercel Environment Variables." 
+        error: "Server Error: API Key missing. Checked GOOGLE_GENERATIVE_AI_API_KEY and API_KEY. See Vercel Logs." 
       });
     }
 
-    // 2. Initialize Client
+    // Initialize Client
     const genAI = new GoogleGenAI({ apiKey });
     
     if (!request.body) {
@@ -48,7 +53,6 @@ export default async function handler(request, response) {
     let resultText = "";
     let resultData = null;
 
-    // 3. Handle Endpoints
     switch (endpoint) {
       case 'chat': {
         const { history, newMessage, userContext } = body;
@@ -90,8 +94,7 @@ export default async function handler(request, response) {
         const { doubt, image } = body;
         const parts = [];
         if (image) {
-            // SDK expects: { inlineData: { mimeType: '...', data: '...' } }
-            // Assuming image is base64 string without data URI prefix
+            // SDK expects base64 data. Ensure strict mimeType.
             parts.push({ inlineData: { mimeType: 'image/jpeg', data: image } });
         }
         parts.push({ text: `Solve this academic doubt step-by-step using Markdown. Doubt: ${doubt}` });
@@ -121,7 +124,6 @@ export default async function handler(request, response) {
           }
         });
         
-        // Return JSON object directly
         resultData = JSON.parse(res.text || '[]');
         return response.status(200).json({ result: resultData });
       }
@@ -156,11 +158,10 @@ export default async function handler(request, response) {
         return response.status(400).json({ error: 'Invalid endpoint' });
     }
 
-    // Return text result for non-JSON endpoints
     return response.status(200).json({ result: resultText });
 
   } catch (error) {
-    console.error("Gemini API Error:", error);
+    console.error("Gemini API Runtime Error:", error);
     return response.status(500).json({ error: error.message });
   }
 }
