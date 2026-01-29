@@ -1,46 +1,10 @@
-import { fileURLToPath } from 'url';
-import { dirname, join, resolve } from 'path';
-import { config } from 'dotenv';
-import fs from 'fs';
 import { GoogleGenAI } from "@google/genai";
-
-// 1. Try standard dotenv loading
-config();
-
-// 2. Manual Fallback: Read .env file directly if process.env.API_KEY is still missing
-// This fixes issues where the process cwd is different from the project root
-if (!process.env.API_KEY) {
-  try {
-    const __filename = fileURLToPath(import.meta.url);
-    const __dirname = dirname(__filename);
-    
-    // Look for .env in the project root (one level up from /api)
-    const envPath = resolve(__dirname, '..', '.env');
-    
-    if (fs.existsSync(envPath)) {
-      console.log(`Found .env file at: ${envPath}`);
-      const fileContent = fs.readFileSync(envPath, 'utf8');
-      
-      // specific regex to capture API_KEY value, handling potential quotes
-      const match = fileContent.match(/^API_KEY=["']?([^"'\n]+)["']?$/m);
-      if (match && match[1]) {
-        process.env.API_KEY = match[1].trim();
-        console.log("Successfully loaded API_KEY manually from file.");
-      }
-    } else {
-      console.warn(`Warning: .env file not found at ${envPath}`);
-    }
-  } catch (err) {
-    console.error("Error manually reading .env file:", err);
-  }
-}
 
 const MODELS = {
   FAST: 'gemini-3-flash-preview',
   PRO: 'gemini-3-pro-preview'
 };
 
-// System instructions
 const SYSTEM_INSTRUCTION_COACH = `You are "ScholarAI Coach", a friendly, encouraging, and intelligent tutor for students (Grade 9 to College) in India.
 GOAL: Explain complex topics simply, using analogies, stories, and memory tricks.
 FORMATTING: Use Markdown, Headings, Bullet points, Tables, Bold text.
@@ -51,7 +15,7 @@ FORMATTING: Use Markdown tables, Bullet points, Bold.
 CONTENT: Guidance on streams, degrees, scope, salary (INR), difficulty.`;
 
 export default async function handler(request, response) {
-  // Handle CORS preflight
+  // CORS Preflight
   if (request.method === 'OPTIONS') {
     return response.status(200).send('OK');
   }
@@ -59,20 +23,13 @@ export default async function handler(request, response) {
   try {
     const apiKey = process.env.API_KEY;
 
-    // Debugging logs
+    // Strict check for API Key
     if (!apiKey) {
-      console.error("CRITICAL ERROR: API_KEY is undefined in handler.");
-    } else {
-      console.log(`API_KEY loaded successfully. Ends with: ...${apiKey.slice(-4)}`);
-    }
-
-    if (!apiKey || apiKey === 'PASTE_YOUR_NEW_GEMINI_API_KEY_HERE') {
+      console.error("CRITICAL: API_KEY is missing in process.env");
       return response.status(500).json({ 
-        error: "Server Configuration Error: API_KEY is missing. Check your .env file." 
+        error: "Server Error: API Key is not configured in Vercel Environment Variables." 
       });
     }
-
-    const genAI = new GoogleGenAI({ apiKey });
 
     if (request.method !== 'POST') {
       return response.status(405).json({ error: 'Method Not Allowed' });
@@ -83,6 +40,9 @@ export default async function handler(request, response) {
     }
 
     const { endpoint, ...body } = request.body;
+    
+    // Initialize AI Client
+    const genAI = new GoogleGenAI({ apiKey });
     let resultText = "";
 
     switch (endpoint) {
@@ -92,7 +52,7 @@ export default async function handler(request, response) {
           role: msg.role,
           parts: [{ text: msg.text }]
         }));
-        
+
         const chat = genAI.chats.create({
           model: MODELS.FAST,
           config: {
@@ -101,6 +61,7 @@ export default async function handler(request, response) {
           },
           history: formattedHistory
         });
+        
         const res = await chat.sendMessage({ message: newMessage });
         resultText = res.text;
         break;
@@ -111,7 +72,7 @@ export default async function handler(request, response) {
         const prompt = `Role: Expert academic content writer. Task: Create exam-ready study notes on "${topic}". 
         Include: Definitions, Formulas (in Tables), Comparisons (in Tables), Step-by-step methods. 
         Format: Markdown with Headers (##) and Horizontal Rules (---).`;
-        
+
         const res = await genAI.models.generateContent({
           model: MODELS.FAST,
           contents: prompt,
@@ -153,8 +114,11 @@ export default async function handler(request, response) {
             responseMimeType: 'application/json'
           }
         });
+        
         const jsonText = res.text;
         if (!jsonText) throw new Error("Empty response from AI for Quiz");
+        
+        // Return JSON directly
         return response.status(200).json({ result: JSON.parse(jsonText) });
       }
 
@@ -174,7 +138,7 @@ export default async function handler(request, response) {
         const prompt = `Create a study plan. Subjects: ${details.subjects}. Hours: ${details.hoursPerDay}. 
         Exam: ${details.examDate}. Weakness: ${details.weakAreas}.
         Output: Weekly timetable in Markdown Table. Strategy section with bullet points.`;
-        
+
         const res = await genAI.models.generateContent({
           model: MODELS.PRO,
           contents: prompt,
@@ -188,15 +152,13 @@ export default async function handler(request, response) {
         return response.status(400).json({ error: 'Invalid endpoint' });
     }
 
-    if (!resultText) {
-       throw new Error("AI response was empty.");
-    }
-
     return response.status(200).json({ result: resultText });
 
   } catch (error) {
-    console.error("Server AI Error:", error);
-    // Return detailed error to help debugging
-    return response.status(500).json({ error: error.message || "Internal Server Error" });
+    console.error("Server API Error:", error);
+    // Send a structured JSON error that the frontend can parse
+    return response.status(500).json({ 
+      error: error.message || "Internal Server Error" 
+    });
   }
 }
