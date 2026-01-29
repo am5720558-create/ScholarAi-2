@@ -22,46 +22,50 @@ export default async function handler(request, response) {
     return response.status(200).send('OK');
   }
 
-  // 1. Get API Key exclusively from Environment Variables
-  const apiKey = process.env.API_KEY;
-
-  if (!apiKey) {
-    console.error("CRITICAL: API_KEY is missing in server environment.");
-    return response.status(500).json({ 
-      error: "Server Configuration Error: API_KEY is missing. Please set it in Vercel Settings or .env file." 
-    });
-  }
-
-  // 2. Initialize the client
-  const genAI = new GoogleGenAI({ apiKey });
-
-  if (request.method !== 'POST') {
-    return response.status(405).json({ error: 'Method Not Allowed' });
-  }
-
-  // Ensure body exists
-  if (!request.body) {
-     return response.status(400).json({ error: 'Missing request body' });
-  }
-
-  const { endpoint, ...body } = request.body;
-
   try {
+    // 1. Get API Key exclusively from Environment Variables
+    const apiKey = process.env.API_KEY;
+
+    // Debug log (masked)
+    if (apiKey) {
+      console.log(`API Key loaded: ${apiKey.substring(0, 4)}...${apiKey.substring(apiKey.length - 4)}`);
+    } else {
+      console.error("CRITICAL: API_KEY is missing in server environment variables.");
+    }
+
+    if (!apiKey || apiKey === 'PASTE_YOUR_NEW_GEMINI_API_KEY_HERE') {
+      return response.status(500).json({ 
+        error: "Server Configuration Error: API_KEY is missing or invalid. Please set a valid key in Vercel Settings or .env file." 
+      });
+    }
+
+    // 2. Initialize the client
+    const genAI = new GoogleGenAI({ apiKey });
+
+    if (request.method !== 'POST') {
+      return response.status(405).json({ error: 'Method Not Allowed' });
+    }
+
+    // Ensure body exists
+    if (!request.body) {
+       return response.status(400).json({ error: 'Missing request body' });
+    }
+
+    const { endpoint, ...body } = request.body;
+
     let resultText = "";
-    // Use Flash model by default for speed and higher quotas
-    const activeModel = MODELS.FAST; 
 
     switch (endpoint) {
       case 'chat': {
         const { history, newMessage, userContext } = body;
-        // Use empty array fallback to prevent crash if history is undefined
         const formattedHistory = (history || []).map(msg => ({
           role: msg.role,
           parts: [{ text: msg.text }]
         }));
         
+        // Chat uses Flash for low latency and high throughput
         const chat = genAI.chats.create({
-          model: activeModel,
+          model: MODELS.FAST,
           config: {
             systemInstruction: `${SYSTEM_INSTRUCTION_COACH} \n\n User Context: ${userContext}`,
             temperature: 0.7,
@@ -79,8 +83,9 @@ export default async function handler(request, response) {
         Include: Definitions, Formulas (in Tables), Comparisons (in Tables), Step-by-step methods. 
         Format: Markdown with Headers (##) and Horizontal Rules (---).`;
         
+        // Notes generation uses Flash for speed
         const res = await genAI.models.generateContent({
-          model: activeModel,
+          model: MODELS.FAST,
           contents: prompt,
           config: { temperature: 0.3 }
         });
@@ -96,10 +101,15 @@ export default async function handler(request, response) {
         }
         parts.push({ text: `Solve this academic doubt step-by-step using Markdown. Doubt: ${doubt}` });
 
+        // Doubt solving uses Pro model for better reasoning capabilities in STEM
+        // Enabled Thinking Config for complex problem solving (Math/Science)
         const res = await genAI.models.generateContent({
-          model: activeModel,
+          model: MODELS.PRO,
           contents: { parts },
-          config: { systemInstruction: "You are an expert academic doubt solver." }
+          config: { 
+            systemInstruction: "You are an expert academic doubt solver. Think through the problem step-by-step.",
+            thinkingConfig: { thinkingBudget: 2048 } // Budget for reasoning tokens
+          }
         });
         resultText = res.text;
         break;
@@ -110,8 +120,9 @@ export default async function handler(request, response) {
         const prompt = `Generate 5 multiple choice questions (MCQs) for "${topic}" at "${difficulty}" level.
         Return ONLY a JSON array. Keys: id, question, options (array), correctAnswer (index), explanation.`;
 
+        // Quiz generation is structured data, Flash is sufficient and faster
         const res = await genAI.models.generateContent({
-          model: activeModel,
+          model: MODELS.FAST,
           contents: prompt,
           config: {
             responseMimeType: 'application/json'
@@ -124,8 +135,9 @@ export default async function handler(request, response) {
 
       case 'career': {
         const { profile, query } = body;
+        // Career advice requires nuanced reasoning, using Pro
         const res = await genAI.models.generateContent({
-          model: activeModel,
+          model: MODELS.PRO,
           contents: `User Profile: ${profile}\n\nUser Query: ${query}\n\nUse Markdown tables and bullet points.`,
           config: { systemInstruction: SYSTEM_INSTRUCTION_CAREER }
         });
@@ -139,8 +151,9 @@ export default async function handler(request, response) {
         Exam: ${details.examDate}. Weakness: ${details.weakAreas}.
         Output: Weekly timetable in Markdown Table. Strategy section with bullet points.`;
         
+        // Planning requires reasoning to balance schedules, using Pro
         const res = await genAI.models.generateContent({
-          model: activeModel,
+          model: MODELS.PRO,
           contents: prompt,
           config: { temperature: 0.5 }
         });
