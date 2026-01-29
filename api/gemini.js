@@ -30,18 +30,22 @@ export default async function handler(request, response) {
   }
 
   try {
-    const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+    // 1. Strict API Key Read - Matches the Key name 'API_KEY'
+    const apiKey = process.env.API_KEY;
 
+    // 2. Diagnostic Check for User Configuration Error
     if (!apiKey) {
-      // Diagnostic check for common config error
+      // Check if user accidentally pasted the Key into the Name field (common Vercel mistake)
       const possibleMisplacedKey = Object.keys(process.env).find(k => k.startsWith('AIzaSy'));
+      
       if (possibleMisplacedKey) {
-        const errorMsg = "CONFIGURATION ERROR: API Key pasted in 'Name' field. Please fix in Vercel Settings.";
+        const errorMsg = "CONFIGURATION ERROR: It appears the API Key was pasted into the 'Key' field in Vercel. Please go to Vercel Settings > Environment Variables. Set Key='API_KEY' and Value='AIzaSy...'";
         console.error(errorMsg);
         return response.status(500).json({ error: errorMsg });
       }
+
       return response.status(500).json({ 
-        error: "Server Error: GOOGLE_GENERATIVE_AI_API_KEY is missing." 
+        error: "Server Error: API_KEY is not defined in environment variables." 
       });
     }
 
@@ -115,12 +119,11 @@ export default async function handler(request, response) {
           history: formattedHistory
         });
         
-        // Chat doesn't use the wrapper yet as it uses chat.sendMessage
-        // We implement a simple retry for chat specifically
         try {
           const res = await chat.sendMessage({ message: newMessage });
           resultText = res.text;
         } catch (error) {
+           // Simple retry for chat to reduce latency
            if (error.status === 429 || error.status === 503) {
              await wait(1500);
              const res = await chat.sendMessage({ message: newMessage });
@@ -154,6 +157,7 @@ export default async function handler(request, response) {
         }
         parts.push({ text: `Solve this academic doubt step-by-step using Markdown. Doubt: ${doubt}` });
 
+        // Tries PRO first (better reasoning), falls back to FAST if quota exceeded
         const res = await generateWithRetry(MODELS.PRO, {
           contents: { parts },
           config: { 
@@ -216,7 +220,7 @@ export default async function handler(request, response) {
     
     let userMessage = error.message;
     if (error.status === 429 || error.status === 503) {
-      userMessage = "High traffic at the moment. Please wait 30 seconds and try again.";
+      userMessage = "We are currently experiencing high traffic. Please try again in a few moments.";
     }
 
     return response.status(500).json({ error: userMessage });
