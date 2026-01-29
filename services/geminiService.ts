@@ -134,11 +134,10 @@ const callService = async (endpoint: string, body: any) => {
     const data = await response.json();
 
     if (!response.ok) {
-       // If the server explicitly told us what's wrong (e.g., Missing API Key),
-       // we should RETURN that message directly and NOT fallback to client side.
-       // This prevents masking deployment errors.
-       if (data.error && (data.error.includes("Server Error") || data.error.includes("API Key"))) {
-          return `⚠️ **Deployment Config Error**: ${data.error}\n\nGo to Vercel Settings > Environment Variables and ensure 'API_KEY' is set.`;
+       // CRITICAL: If the server explicitly says the API Key is missing, return that error immediately.
+       // Do not attempt fallback, because that confuses the user.
+       if (data.error && (data.error.includes("API Key") || data.error.includes("Server Error"))) {
+          return `⚠️ **Deployment Issue**: ${data.error}\n\n**Action**: Check your Vercel Environment Variables. The app checks for \`API_KEY\`, \`AI_GATEWAY_API_KEY\`, or \`GOOGLE_GENERATIVE_AI_API_KEY\`.`;
        }
        throw new Error(data.error || `HTTP ${response.status}`);
     }
@@ -150,7 +149,7 @@ const callService = async (endpoint: string, body: any) => {
     console.warn("Backend call failed:", error.message);
   }
 
-  // 2. Fallback to Client Side (Only if backend was unreachable or generic error)
+  // 2. Fallback to Client Side (Only if backend was completely unreachable or returned a generic error)
   try {
     const result = await clientSideHandler(endpoint, body);
     return result;
@@ -159,14 +158,11 @@ const callService = async (endpoint: string, body: any) => {
     if (clientError.message === "MISSING_LOCAL_KEY") {
       
       if (backendError?.message === "BACKEND_HTML_ERROR") {
-        return "⚠️ **Backend Unreachable (404)**: The server API file `api/gemini.js` was not found.\n\n**Solution:**\n1. Ensure `api/gemini.js` exists in your repo.\n2. Ensure `vercel.json` is configured correctly.\n3. **Or** click Settings (⚙️) to use a Local API Key.";
+        return "⚠️ **Backend Unreachable**: The server API route `/api/gemini` returned HTML (404/500) instead of JSON.\n\n**Fix:** Ensure `api/gemini.js` exists and `vercel.json` rewrites are correct.";
       }
 
-      if (backendError?.message.includes("HTTP 500")) {
-        return "⚠️ **Server Error (500)**: The backend crashed. Check Vercel Function Logs for details.\n\n**Or** click Settings (⚙️) to use a Local API Key.";
-      }
-      
-      return "⚠️ **Configuration Needed**: The backend is not responding and no Local API Key is set.\n\n**To fix:** Click the **Settings (⚙️)** icon in the top right and enter your Gemini API Key.";
+      // If we are here, it means the backend failed with a network error or generic error, AND the user has no local key.
+      return "⚠️ **Connection Error**: The backend is not responding and no Local API Key is set.\n\n**To fix:** Click the **Settings (⚙️)** icon in the top right and enter your Gemini API Key.";
     }
     
     console.error("Client side error:", clientError);

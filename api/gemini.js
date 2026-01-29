@@ -21,13 +21,15 @@ export default async function handler(request, response) {
   }
 
   try {
-    const apiKey = process.env.API_KEY;
+    // Check multiple common environment variable names for the API Key
+    // Vercel AI Marketplace often uses AI_GATEWAY_API_KEY or GOOGLE_GENERATIVE_AI_API_KEY
+    const apiKey = process.env.API_KEY || process.env.AI_GATEWAY_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
 
     // Strict check for API Key
     if (!apiKey) {
-      console.error("CRITICAL: API_KEY is missing in process.env");
+      console.error("CRITICAL: API Key is missing in process.env. Checked: API_KEY, AI_GATEWAY_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY");
       return response.status(500).json({ 
-        error: "Server Error: API Key is not configured in Vercel Environment Variables." 
+        error: "Server Error: API Key is not configured in Vercel Environment Variables. Please set 'API_KEY'." 
       });
     }
 
