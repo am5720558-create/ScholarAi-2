@@ -1,8 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 
-// 1. Force Vercel to use Node.js runtime (Critical for @google/genai)
 export const config = {
-  runtime: 'nodejs',
+  runtime: 'nodejs', // Force Node.js runtime for @google/genai
 };
 
 const SYSTEM_INSTRUCTION_COACH = `You are "ScholarAI Coach", a friendly, encouraging, and intelligent tutor for students (Grade 9 to College) in India.
@@ -20,7 +19,6 @@ const MODELS = {
 };
 
 export default async function handler(request, response) {
-  // Handle CORS options
   if (request.method === 'OPTIONS') {
     return response.status(200).send('OK');
   }
@@ -30,19 +28,28 @@ export default async function handler(request, response) {
   }
 
   try {
-    // 2. Read API Key with Fallback
-    // Vercel injects these automatically in production. No dotenv needed.
-    const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.API_KEY;
-    
-    // 3. Debug Logging (Visible in Vercel Functions Logs)
+    // 1. Strict API Key Read
+    const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+
+    // 2. Diagnostic Check for User Configuration Error
     if (!apiKey) {
-      console.error("DEBUG: Environment Variables Keys Available:", Object.keys(process.env));
+      // Check if user accidentally pasted the Key into the Name field
+      const possibleMisplacedKey = Object.keys(process.env).find(k => k.startsWith('AIzaSy'));
+      
+      console.error("DEBUG: GOOGLE_GENERATIVE_AI_API_KEY is missing.");
+      console.log("DEBUG: Available Env Keys:", Object.keys(process.env));
+
+      if (possibleMisplacedKey) {
+        const errorMsg = "CONFIGURATION ERROR: It appears the API Key was pasted into the 'Name' field in Vercel. Please go to Vercel Settings > Environment Variables, create a key named 'GOOGLE_GENERATIVE_AI_API_KEY', and paste the API Key into the 'Value' field.";
+        console.error(errorMsg);
+        return response.status(500).json({ error: errorMsg });
+      }
+
       return response.status(500).json({ 
-        error: "Server Error: API Key missing. Checked GOOGLE_GENERATIVE_AI_API_KEY and API_KEY. See Vercel Logs." 
+        error: "Server Error: GOOGLE_GENERATIVE_AI_API_KEY is not defined in Vercel Environment Variables." 
       });
     }
 
-    // Initialize Client
     const genAI = new GoogleGenAI({ apiKey });
     
     if (!request.body) {
@@ -94,7 +101,6 @@ export default async function handler(request, response) {
         const { doubt, image } = body;
         const parts = [];
         if (image) {
-            // SDK expects base64 data. Ensure strict mimeType.
             parts.push({ inlineData: { mimeType: 'image/jpeg', data: image } });
         }
         parts.push({ text: `Solve this academic doubt step-by-step using Markdown. Doubt: ${doubt}` });

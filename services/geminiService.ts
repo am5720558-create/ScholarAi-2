@@ -12,7 +12,7 @@ const callService = async (endpoint: string, body: any) => {
     const data = await response.json();
 
     if (!response.ok) {
-      // Throw the error message returned by the server (e.g., "API Key is missing")
+      // Throw the error message returned by the server
       throw new Error(data.error || `Server Error: ${response.status}`);
     }
 
