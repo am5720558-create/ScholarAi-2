@@ -1,11 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
-import 'dotenv/config'; 
+import 'dotenv/config';
 
-const MODELS = {
-  FAST: 'gemini-3-flash-preview',
-  PRO: 'gemini-3-pro-preview'
-};
-
+// Constants defined here to ensure the serverless function is self-contained
 const SYSTEM_INSTRUCTION_COACH = `You are "ScholarAI Coach", a friendly, encouraging, and intelligent tutor for students (Grade 9 to College) in India.
 GOAL: Explain complex topics simply, using analogies, stories, and memory tricks.
 FORMATTING: Use Markdown, Headings, Bullet points, Tables, Bold text.
@@ -15,38 +11,44 @@ const SYSTEM_INSTRUCTION_CAREER = `You are a Career Counselor expert for the Ind
 FORMATTING: Use Markdown tables, Bullet points, Bold.
 CONTENT: Guidance on streams, degrees, scope, salary (INR), difficulty.`;
 
+const MODELS = {
+  FAST: 'gemini-3-flash-preview',
+  PRO: 'gemini-3-pro-preview'
+};
+
 export default async function handler(request, response) {
-  // CORS Preflight
+  // Handle CORS options for local dev or cross-origin if needed
   if (request.method === 'OPTIONS') {
     return response.status(200).send('OK');
   }
 
-  try {
-    // Check multiple common environment variable names for the API Key
-    const apiKey = process.env.API_KEY || process.env.AI_GATEWAY_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+  if (request.method !== 'POST') {
+    return response.status(405).json({ error: 'Method Not Allowed' });
+  }
 
-    // Strict check for API Key
+  try {
+    // 1. Strict Key Check - Only look for the Vercel/System Env Var
+    const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+    
     if (!apiKey) {
-      console.error("CRITICAL: API Key is missing in process.env. Checked: API_KEY, AI_GATEWAY_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY");
+      console.error("CRITICAL: GOOGLE_GENERATIVE_AI_API_KEY is missing in environment variables.");
       return response.status(500).json({ 
-        error: "Server Error: API Key is missing. If you recently added it to Vercel, please REDEPLOY the project for changes to take effect. If running locally, ensure .env is loaded." 
+        error: "Server Configuration Error: GOOGLE_GENERATIVE_AI_API_KEY is missing. Please add it to Vercel Environment Variables." 
       });
     }
 
-    if (request.method !== 'POST') {
-      return response.status(405).json({ error: 'Method Not Allowed' });
-    }
-
+    // 2. Initialize Client
+    const genAI = new GoogleGenAI({ apiKey });
+    
     if (!request.body) {
-       return response.status(400).json({ error: 'Missing request body' });
+      return response.status(400).json({ error: "Missing request body" });
     }
 
     const { endpoint, ...body } = request.body;
-    
-    // Initialize AI Client
-    const genAI = new GoogleGenAI({ apiKey });
     let resultText = "";
+    let resultData = null;
 
+    // 3. Handle Endpoints
     switch (endpoint) {
       case 'chat': {
         const { history, newMessage, userContext } = body;
@@ -88,6 +90,8 @@ export default async function handler(request, response) {
         const { doubt, image } = body;
         const parts = [];
         if (image) {
+            // SDK expects: { inlineData: { mimeType: '...', data: '...' } }
+            // Assuming image is base64 string without data URI prefix
             parts.push({ inlineData: { mimeType: 'image/jpeg', data: image } });
         }
         parts.push({ text: `Solve this academic doubt step-by-step using Markdown. Doubt: ${doubt}` });
@@ -117,11 +121,9 @@ export default async function handler(request, response) {
           }
         });
         
-        const jsonText = res.text;
-        if (!jsonText) throw new Error("Empty response from AI for Quiz");
-        
-        // Return JSON directly
-        return response.status(200).json({ result: JSON.parse(jsonText) });
+        // Return JSON object directly
+        resultData = JSON.parse(res.text || '[]');
+        return response.status(200).json({ result: resultData });
       }
 
       case 'career': {
@@ -154,13 +156,11 @@ export default async function handler(request, response) {
         return response.status(400).json({ error: 'Invalid endpoint' });
     }
 
+    // Return text result for non-JSON endpoints
     return response.status(200).json({ result: resultText });
 
   } catch (error) {
-    console.error("Server API Error:", error);
-    // Send a structured JSON error that the frontend can parse
-    return response.status(500).json({ 
-      error: error.message || "Internal Server Error" 
-    });
+    console.error("Gemini API Error:", error);
+    return response.status(500).json({ error: error.message });
   }
 }
