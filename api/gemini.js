@@ -1,24 +1,30 @@
 import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { dirname, join, resolve } from 'path';
 import { config } from 'dotenv';
+import fs from 'fs';
 import { GoogleGenAI } from "@google/genai";
 
-// Robust .env loading strategy
-// 1. Try default loading (process.cwd)
+// Load environment variables
+// 1. Try standard loading (works in most production/vercel environments)
 config();
 
-// 2. If not found, try resolving relative to this file
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
+// 2. Manual Fallback: Explicitly look for .env in the current working directory
+// This is often needed for 'vercel dev' or local node execution where the root might differ
 if (!process.env.API_KEY) {
-    // Check in parent directory (root) if running from api/
-    config({ path: join(__dirname, '..', '.env') });
-}
-
-if (!process.env.API_KEY) {
-    // Check in current working directory explicitly
-    config({ path: join(process.cwd(), '.env') });
+  const rootEnvPath = join(process.cwd(), '.env');
+  if (fs.existsSync(rootEnvPath)) {
+    console.log(`Loading .env from: ${rootEnvPath}`);
+    config({ path: rootEnvPath });
+  } else {
+    // 3. Fallback: Look one level up from this file (useful if CWD is /api)
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = dirname(__filename);
+    const parentEnvPath = resolve(__dirname, '..', '.env');
+    if (fs.existsSync(parentEnvPath)) {
+       console.log(`Loading .env from: ${parentEnvPath}`);
+       config({ path: parentEnvPath });
+    }
+  }
 }
 
 const MODELS = {
@@ -43,38 +49,33 @@ export default async function handler(request, response) {
   }
 
   try {
-    // 1. Get API Key from Environment Variables
     const apiKey = process.env.API_KEY;
 
-    // Debug log to Server Console
-    if (apiKey) {
-      console.log(`API Key status: Loaded (Ends with ...${apiKey.slice(-4)})`);
+    // Detailed Debugging for the user
+    if (!apiKey) {
+      console.error("CRITICAL ERROR: API_KEY is missing from process.env");
+      console.error(`Current Directory: ${process.cwd()}`);
     } else {
-      console.error(`CRITICAL: API_KEY missing in process.env`);
-      console.error(`Current Working Directory: ${process.cwd()}`);
-      console.error(`__dirname: ${__dirname}`);
+      console.log(`API Key status: Loaded (Ends with ...${apiKey.slice(-4)})`);
     }
 
-    if (!apiKey || apiKey === 'PASTE_YOUR_NEW_GEMINI_API_KEY_HERE') {
+    if (!apiKey || apiKey.includes('PASTE_YOUR') || apiKey.length < 20) {
       return response.status(500).json({ 
-        error: "Server Configuration Error: API_KEY is missing or invalid. If running locally, check .env. If deployed on Vercel, check Project Settings > Environment Variables." 
+        error: "Server Configuration Error: API_KEY is missing or invalid. Please check your .env file." 
       });
     }
 
-    // 2. Initialize the client
     const genAI = new GoogleGenAI({ apiKey });
 
     if (request.method !== 'POST') {
       return response.status(405).json({ error: 'Method Not Allowed' });
     }
 
-    // Ensure body exists
     if (!request.body) {
        return response.status(400).json({ error: 'Missing request body' });
     }
 
     const { endpoint, ...body } = request.body;
-
     let resultText = "";
 
     switch (endpoint) {
@@ -85,7 +86,6 @@ export default async function handler(request, response) {
           parts: [{ text: msg.text }]
         }));
         
-        // Chat uses Flash for low latency
         const chat = genAI.chats.create({
           model: MODELS.FAST,
           config: {
@@ -105,7 +105,6 @@ export default async function handler(request, response) {
         Include: Definitions, Formulas (in Tables), Comparisons (in Tables), Step-by-step methods. 
         Format: Markdown with Headers (##) and Horizontal Rules (---).`;
         
-        // Notes generation uses Flash
         const res = await genAI.models.generateContent({
           model: MODELS.FAST,
           contents: prompt,
@@ -123,7 +122,6 @@ export default async function handler(request, response) {
         }
         parts.push({ text: `Solve this academic doubt step-by-step using Markdown. Doubt: ${doubt}` });
 
-        // Doubt solving uses Pro with Thinking
         const res = await genAI.models.generateContent({
           model: MODELS.PRO,
           contents: { parts },
@@ -184,13 +182,14 @@ export default async function handler(request, response) {
     }
 
     if (!resultText) {
-       throw new Error("AI response was empty. Content might be blocked.");
+       throw new Error("AI response was empty.");
     }
 
     return response.status(200).json({ result: resultText });
 
   } catch (error) {
     console.error("Server AI Error:", error);
+    // Return detailed error to help debugging
     return response.status(500).json({ error: error.message || "Internal Server Error" });
   }
 }
