@@ -1,14 +1,16 @@
 // OpenRouter / OpenAI Compatible Handler
-// We switched from @google/genai to raw fetch calls to OpenRouter
-// because the provided key (sk-or-v1...) is an OpenRouter key.
+// Switched to OpenRouter to bypass Google Free Tier limits (429 Errors).
 
 export const config = {
   runtime: 'nodejs',
 };
 
+// --- CONFIGURATION ---
+// We are using the provided OpenRouter Key directly to ensure immediate stability.
+const API_KEY = "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";
 const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
-const MODEL_NAME = "google/gemini-2.0-flash-001"; // High performance, high throughput via OpenRouter
-const SITE_URL = "https://scholarai.vercel.app"; // Recommended for OpenRouter rankings
+const MODEL_NAME = "google/gemini-2.0-flash-001"; // Best model for speed/intelligence
+const SITE_URL = "https://scholarai.vercel.app";
 const SITE_NAME = "ScholarAI";
 
 // --- SYSTEM INSTRUCTIONS ---
@@ -20,8 +22,6 @@ BEHAVIOR: Adjust language to student level. Be encouraging. Provide step-by-step
 const SYSTEM_INSTRUCTION_CAREER = `You are a Career Counselor expert for the Indian education system.
 FORMATTING: Use Markdown tables, Bullet points, Bold.
 CONTENT: Guidance on streams, degrees, scope, salary (INR), difficulty.`;
-
-const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 export default async function handler(request, response) {
   // --- CORS Headers ---
@@ -37,12 +37,13 @@ export default async function handler(request, response) {
   if (request.method !== 'POST') return response.status(405).json({ error: 'Method Not Allowed' });
 
   try {
-    const apiKey = process.env.API_KEY;
-    if (!apiKey) {
-      return response.status(500).json({ error: "Server Error: API Key missing." });
+    // 1. Check API Key
+    if (!API_KEY) {
+      console.error("Critical: API_KEY is missing in code.");
+      return response.status(500).json({ error: "Server Configuration Error: API Key missing." });
     }
 
-    // Helper to call OpenRouter
+    // 2. Helper to call OpenRouter
     const callOpenRouter = async (messages, temperature = 0.7, jsonMode = false) => {
       const payload = {
         model: MODEL_NAME,
@@ -55,10 +56,12 @@ export default async function handler(request, response) {
         payload.response_format = { type: "json_object" };
       }
 
+      console.log(`[OpenRouter] Sending request to ${MODEL_NAME}...`);
+
       const res = await fetch(OPENROUTER_API_URL, {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${apiKey}`,
+          "Authorization": `Bearer ${API_KEY}`,
           "HTTP-Referer": SITE_URL,
           "X-Title": SITE_NAME,
           "Content-Type": "application/json"
@@ -68,8 +71,8 @@ export default async function handler(request, response) {
 
       if (!res.ok) {
         const errText = await res.text();
-        console.error("OpenRouter Error:", errText);
-        throw new Error(`OpenRouter API Error: ${res.status}`);
+        console.error(`[OpenRouter Error] Status: ${res.status}`, errText);
+        throw new Error(`AI Provider Error (${res.status}): ${errText.substring(0, 200)}`);
       }
 
       const data = await res.json();
@@ -82,13 +85,11 @@ export default async function handler(request, response) {
     let resultText = "";
     let resultData = null;
 
+    // 3. Handle Endpoints
     switch (endpoint) {
       case 'chat': {
         const { history, newMessage, userContext } = body;
         
-        // Convert history (Google/Internal format) to OpenAI format
-        // Internal: { role: 'user' | 'model', text: string }
-        // OpenAI: { role: 'user' | 'assistant', content: string }
         const messages = [
           { role: "system", content: `${SYSTEM_INSTRUCTION_COACH}\n\nUser Context: ${userContext}` },
           ...(history || []).map(msg => ({
@@ -118,8 +119,6 @@ export default async function handler(request, response) {
         
         let userContent;
         if (image) {
-          // OpenRouter/OpenAI Vision Format
-          // Image comes in as raw base64 data from frontend. 
           userContent = [
             { type: "text", text: `Solve this academic doubt step-by-step using Markdown. Doubt: ${doubt}` },
             { 
@@ -138,7 +137,7 @@ export default async function handler(request, response) {
           { role: "user", content: userContent }
         ];
 
-        resultText = await callOpenRouter(messages, 0.2); // Lower temp for accuracy
+        resultText = await callOpenRouter(messages, 0.2); 
         break;
       }
 
@@ -149,11 +148,10 @@ export default async function handler(request, response) {
         Do not wrap in markdown code blocks. Just raw JSON.`;
 
         const messages = [{ role: "user", content: prompt }];
-        // Note: Not all OpenRouter models support strict json_object mode, but Gemini 2.0 is good at it.
         const rawText = await callOpenRouter(messages, 0.7);
         
         // Clean up response if it contains markdown
-        let cleanText = rawText.trim();
+        let cleanText = (rawText || "").trim();
         if (cleanText.startsWith('```json')) {
             cleanText = cleanText.replace(/```json/g, '').replace(/```/g, '');
         } else if (cleanText.startsWith('```')) {
@@ -164,6 +162,7 @@ export default async function handler(request, response) {
           resultData = JSON.parse(cleanText);
         } catch (e) {
           console.error("Quiz JSON Parse Error", e);
+          // Fallback empty array to prevent crash
           resultData = [];
         }
         return response.status(200).json({ result: resultData });
@@ -198,8 +197,9 @@ export default async function handler(request, response) {
 
   } catch (error) {
     console.error("API Runtime Error:", error);
+    // Return the actual error message to the client for better debugging
     return response.status(500).json({ 
-      error: "High traffic detected or API Error. Please try again shortly." 
+      error: error.message || "An unexpected error occurred. Please try again." 
     });
   }
 }
