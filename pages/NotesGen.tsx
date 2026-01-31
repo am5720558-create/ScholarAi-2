@@ -1,22 +1,25 @@
 import React, { useState } from 'react';
 import { generateNotes } from '../services/geminiService';
-import { FileText, Download, Copy, Loader2, Book } from 'lucide-react';
+import { FileText, Download, Copy, Loader2, Book, AlertTriangle } from 'lucide-react';
 import MarkdownRenderer from '../components/MarkdownRenderer';
 
 const NotesGen: React.FC = () => {
   const [input, setInput] = useState('');
   const [output, setOutput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   const handleGenerate = async () => {
     if (!input.trim()) return;
     setLoading(true);
+    setError('');
+    setOutput('');
     try {
       const notes = await generateNotes(input);
       setOutput(notes || "Failed to generate notes.");
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      setOutput("Error generating notes. Please try a shorter text.");
+      setError(err.message || "Error generating notes. Please try a shorter text.");
     } finally {
       setLoading(false);
     }
@@ -85,7 +88,13 @@ const NotesGen: React.FC = () => {
             )}
           </div>
           <div className="flex-1 w-full p-6 overflow-y-auto bg-gray-50/50 dark:bg-gray-900/30">
-             {output ? (
+             {error ? (
+                <div className="h-full flex flex-col items-center justify-center text-red-500 p-4 text-center">
+                    <AlertTriangle size={32} className="mb-2" />
+                    <p className="font-semibold">Error</p>
+                    <p className="text-sm">{error}</p>
+                </div>
+             ) : output ? (
                <div className="text-sm text-gray-800 dark:text-gray-200">
                  <MarkdownRenderer content={output} />
                </div>

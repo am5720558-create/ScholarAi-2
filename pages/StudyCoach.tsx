@@ -54,12 +54,12 @@ const StudyCoach: React.FC = () => {
         timestamp: Date.now()
       };
       setMessages(prev => [...prev, botMsg]);
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
       const errorMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: MessageRole.MODEL,
-        text: "Oops! Something went wrong connecting to the AI. Please check your connection.",
+        text: `⚠️ **Error:** ${error.message || "Connection failed."}`,
         timestamp: Date.now()
       };
       setMessages(prev => [...prev, errorMsg]);

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { solveDoubt } from '../services/geminiService';
-import { Camera, Send, Loader2, AlertCircle } from 'lucide-react';
+import { Camera, Send, Loader2, AlertCircle, AlertTriangle } from 'lucide-react';
 import MarkdownRenderer from '../components/MarkdownRenderer';
 
 const DoubtSolver: React.FC = () => {
@@ -8,6 +8,7 @@ const DoubtSolver: React.FC = () => {
   const [image, setImage] = useState<string | null>(null);
   const [answer, setAnswer] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -26,15 +27,16 @@ const DoubtSolver: React.FC = () => {
 
     setLoading(true);
     setAnswer(null);
+    setError(null);
 
     try {
       // Clean base64 string if present (remove "data:image/jpeg;base64,")
       const base64Data = image ? image.split(',')[1] : undefined;
       const response = await solveDoubt(question, base64Data);
       setAnswer(response || "Sorry, I couldn't solve that right now.");
-    } catch (error) {
-      console.error(error);
-      setAnswer("An error occurred while fetching the solution.");
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || "An error occurred while fetching the solution.");
     } finally {
       setLoading(false);
     }
@@ -86,6 +88,13 @@ const DoubtSolver: React.FC = () => {
           </div>
         </form>
       </div>
+
+      {error && (
+        <div className="bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 p-4 rounded-lg flex items-start">
+            <AlertTriangle className="mr-2 flex-shrink-0" />
+            <span>{error}</span>
+        </div>
+      )}
 
       {answer && (
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-100 dark:border-gray-700 overflow-hidden animate-fade-in">
