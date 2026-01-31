@@ -15,12 +15,12 @@ FORMATTING: Use Markdown tables, Bullet points, Bold.
 CONTENT: Guidance on streams, degrees, scope, salary (INR), difficulty.`;
 
 // --- MODEL CONFIGURATION ---
-// Selected Model: gemini-2.0-flash
+// Selected Model: gemini-1.5-flash
 // Reason:
-// 1. High Quota (15 RPM / 1500 RPD) -> Handles "High User Traffic" & "Unlimited" feel.
-// 2. High Intelligence -> Outperforms previous generations in reasoning/math.
-// 3. Low Latency -> "Best Results" for chat and interaction.
-const MODEL_NAME = 'gemini-2.0-flash';
+// 1. STABILITY: Resolves "Resource Exhausted" (429) errors seen with preview models.
+// 2. HIGH QUOTA: Offers ~1500 requests/day on free tier (vs ~50 for previews).
+// 3. PERFORMANCE: Excellent speed and reasoning for high-traffic applications.
+const MODEL_NAME = 'gemini-1.5-flash';
 
 const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -41,7 +41,6 @@ export default async function handler(request, response) {
     // --- API Key Detection ---
     let apiKey = process.env.API_KEY;
     if (!apiKey) {
-      // Fallback: Check for other common variable names if API_KEY is missing
       const foundKeyName = Object.keys(process.env).find(k => 
         typeof process.env[k] === 'string' && process.env[k].startsWith('AIzaSy')
       );
@@ -56,13 +55,13 @@ export default async function handler(request, response) {
 
     // --- Helper: Robust Generation ---
     const generateContent = async (params) => {
-      // Simple retry only for server errors (503), not for user errors
       try {
         return await genAI.models.generateContent({
           model: MODEL_NAME,
           ...params
         });
       } catch (error) {
+        // Retry on 503 (Server Overload)
         if (error.status === 503) {
           console.warn("[Gemini] Service unavailable, retrying once...");
           await wait(1500);
@@ -128,7 +127,6 @@ export default async function handler(request, response) {
         const res = await generateContent({
           contents: { parts },
           config: { 
-            // gemini-2.0-flash is smart enough without 'thinkingConfig'
             systemInstruction: "You are an expert academic doubt solver. Think through the problem step-by-step and provide clear, accurate solutions."
           }
         });
@@ -148,7 +146,6 @@ export default async function handler(request, response) {
           }
         });
         
-        // Ensure we parse correctly even if the model adds markdown code blocks
         let cleanText = res.text || '[]';
         if (cleanText.startsWith('```json')) {
             cleanText = cleanText.replace(/```json/g, '').replace(/```/g, '');
@@ -192,7 +189,6 @@ export default async function handler(request, response) {
     console.error("Gemini API Runtime Error:", error);
     let userMessage = error.message;
     
-    // Friendly error message for rate limits, though much less likely with 2.0-flash
     if (error.status === 429) {
       userMessage = "We are receiving very high traffic right now. Please wait 30 seconds and try again.";
     } else if (error.status === 503) {
