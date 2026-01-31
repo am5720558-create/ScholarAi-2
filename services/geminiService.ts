@@ -12,13 +12,14 @@ const callService = async (endpoint: string, body: any) => {
     const data = await response.json();
 
     if (!response.ok) {
-      // Throw the error message returned by the server
+      // Throw the clear error message returned by the server
       throw new Error(data.error || `Server Error: ${response.status}`);
     }
 
     return data.result;
   } catch (error: any) {
     console.error(`Service Call Failed [${endpoint}]:`, error);
+    // Rethrow so the UI components can catch and display
     throw error;
   }
 };
