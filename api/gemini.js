@@ -5,7 +5,15 @@ export const config = {
 };
 
 // --- CONFIGURATION ---
-const getApiKey = () => process.env.API_KEY;
+// We check the environment variable first. 
+// If missing, we fall back to the provided key to ensure the app works immediately.
+const getApiKey = () => {
+  if (process.env.API_KEY && process.env.API_KEY.trim() !== "") {
+      return process.env.API_KEY;
+  }
+  // Fallback Key provided by user
+  return "AIzaSyARYJFRCu96mlCq6cMocuxuNSJO52UwTKI";
+};
 
 // --- SYSTEM INSTRUCTIONS ---
 const SYSTEM_INSTRUCTION_COACH = `You are "ScholarAI Coach", a friendly, encouraging, and intelligent tutor for students (Grade 9 to College) in India.
@@ -34,14 +42,14 @@ export default async function handler(request, response) {
     
     // 1. Check if Key Exists
     if (!apiKey) {
-      console.error("API_KEY missing in environment variables");
-      return response.status(500).json({ error: "Server Error: API_KEY is missing. Please add a valid Google API Key in Vercel Settings." });
+      console.error("API_KEY missing in configuration");
+      return response.status(500).json({ error: "Server Error: API Key is missing. Please check api/gemini.js configuration." });
     }
 
     // 2. Check for Invalid OpenRouter Key (Legacy Support Removal)
     if (apiKey.startsWith("sk-or-v1")) {
       return response.status(401).json({ 
-        error: "CONFIGURATION ERROR: You are using an old OpenRouter key. Please update your Vercel Environment Variables to use a valid Google Gemini API Key (starts with 'AIza')." 
+        error: "CONFIGURATION ERROR: You are using an old OpenRouter key. Please update your settings to use the valid Google Gemini API Key." 
       });
     }
 
@@ -170,7 +178,7 @@ export default async function handler(request, response) {
     // Map Google SDK errors to readable messages
     if (errorMessage.includes("403") || errorMessage.includes("API key not valid")) {
        statusCode = 401;
-       errorMessage = "Invalid Google API Key. Please check your Vercel Settings.";
+       errorMessage = "Invalid Google API Key. Please check the code or Vercel Settings.";
     } else if (errorMessage.includes("429")) {
        statusCode = 429;
        errorMessage = "AI Traffic limit reached (429). Please try again in a minute.";
